@@ -1,0 +1,56 @@
+# ────────────────────── Python ──────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ────────────────────── Virtual Environments ──────────────────────
+venv/
+.venv/
+env/
+.env
+
+# ────────────────────── Training Outputs ──────────────────────
+# Checkpoints, results.json, logs — all reproducible
+results/
+*.pt
+*.pth
+*.ckpt
+logs/
+runs/
+wandb/
+
+# ────────────────────── Partition JSONs ──────────────────────
+# Regeneratable via partition_*.py scripts (each ~8MB, 67MB total)
+# Keep the directory via partitions/README.md
+partitions/*.json
+
+# ────────────────────── Dataset ──────────────────────
+# WHU-GCD dataset lives outside the repo; safeguard against accidental commit
+WHU-GCD/
+
+# ────────────────────── IDE / Editor ──────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# ────────────────────── OS ──────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ────────────────────── Jupyter ──────────────────────
+.ipynb_checkpoints/
+
+# ────────────────────── Misc ──────────────────────
+*.log
+.cache/
