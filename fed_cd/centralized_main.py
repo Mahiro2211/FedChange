@@ -129,6 +129,13 @@ def run_centralized(args):
     train_losses = []
     eval_history = {split: [] for split in eval_loaders}
 
+    # 每个测试集 × 每个 mean 指标 独立追踪历史最优及其 epoch
+    _BEST_METRICS = ('mf1', 'miou', 'mprecision', 'mrecall')
+    bests = {
+        split: {m: {'value': 0.0, 'epoch': 0} for m in _BEST_METRICS}
+        for split in eval_loaders
+    }
+
     logger.info(f"Training for {args.epochs} epochs...")
 
     for epoch in range(args.epochs):
@@ -203,6 +210,26 @@ def run_centralized(args):
                     f"Rec={scores.get(f'recall_{n_cls - 1}', 0.0):.4f}"
                 )
 
+                # 每指标独立更新历史最优（首次评估无条件写入）
+                rec = eval_history[split_name][-1]
+                for m in _BEST_METRICS:
+                    cur = rec[m]
+                    if bests[split_name][m]['epoch'] == 0 or cur > bests[split_name][m]['value']:
+                        bests[split_name][m]['value'] = cur
+                        bests[split_name][m]['epoch'] = epoch + 1
+
+            # 每轮评估后打印各测试集 best-so-far（每指标独立）
+            logger.info(f"  ── Best-so-far (per-metric, up to epoch {epoch+1}) ──")
+            for split_name in eval_loaders:
+                b = bests[split_name]
+                logger.info(
+                    f"  [{split_name:>5s}] BEST: "
+                    f"mF1={b['mf1']['value']:.4f}(e{b['mf1']['epoch']})  "
+                    f"mIoU={b['miou']['value']:.4f}(e{b['miou']['epoch']})  "
+                    f"mPrec={b['mprecision']['value']:.4f}(e{b['mprecision']['epoch']})  "
+                    f"mRec={b['mrecall']['value']:.4f}(e{b['mrecall']['epoch']})"
+                )
+
             val_mf1 = current_results.get('val', {}).get('mf1', 0)
             if val_mf1 > best_metric:
                 best_metric = val_mf1
@@ -224,6 +251,17 @@ def run_centralized(args):
     logger.info(f"{'=' * 60}")
     logger.info(f"Training complete. Best val mF1 = {best_metric:.4f} (epoch {best_epoch})")
     logger.info(f"{'=' * 60}")
+
+    # 各测试集每个 mean 指标的历史最优汇总（每指标独立追踪）
+    logger.info(f"{'─' * 60}")
+    logger.info("Best metrics per split (per-metric independent):")
+    for split_name in eval_loaders:
+        b = bests[split_name]
+        logger.info(f"  [{split_name:>5s}]")
+        for m_name, label in (('mf1', 'mF1 '), ('miou', 'mIoU'),
+                              ('mprecision', 'mPrec'), ('mrecall', 'mRec ')):
+            logger.info(f"    {label}: {b[m_name]['value']:.4f}  (epoch {b[m_name]['epoch']})")
+    logger.info(f"{'─' * 60}")
 
     if os.path.exists(os.path.join(args.checkpoint_dir, 'best_ckpt.pt')):
         ckpt = torch.load(os.path.join(args.checkpoint_dir, 'best_ckpt.pt'),
@@ -259,6 +297,7 @@ def run_centralized(args):
             'args': {k: str(v) for k, v in vars(args).items()},
             'best_metric': best_metric,
             'best_epoch': best_epoch,
+            'best_metrics': bests,
             'train_losses': train_losses,
             'eval_history': eval_history,
             'final_results': final_results,
