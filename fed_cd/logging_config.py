@@ -1,5 +1,5 @@
 """
-Loguru logger setup for federated / centralized training.
+Loguru logger setup for federated training.
 
 Writes to:
   - results/<project_name>/train.log   (persistent, with rotation)
@@ -65,7 +65,3 @@ def setup_logger(
 
     return logger
 
-
-def get_logger():
-    """Return the configured loguru logger (call after setup_logger)."""
-    return logger

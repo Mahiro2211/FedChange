@@ -12,29 +12,51 @@ From the project root (`FedChange/`), with `../WHU-GCD/` containing the dataset:
 # Strategy 1: by source (domain shift)        → 7 clients
 python partition_by_source.py --data_root ../WHU-GCD
 
-# Strategy 2: by class (FedSeg style)          → 70 clients (10 per class + 10 neg)
-python partition_by_class.py --data_root ../WHU-GCD
-
-# Strategy 3: Dirichlet (controlled skew)
+# Strategy 2: Dirichlet (controlled skew)
 python partition_dirichlet.py --alpha 0.1  --num_clients 7 --data_root ../WHU-GCD
 python partition_dirichlet.py --alpha 0.5  --num_clients 7 --data_root ../WHU-GCD
 python partition_dirichlet.py --alpha 1.0  --num_clients 7 --data_root ../WHU-GCD
 python partition_dirichlet.py --alpha 100  --num_clients 7 --data_root ../WHU-GCD
 
-# Strategy 4: hybrid (domain + class)          → 6 clients
+# Strategy 3: hybrid (domain + class)          → 6 clients
 python partition_hybrid.py --data_root ../WHU-GCD
+
+# Strategy 4: Non-IID class comparison (fixed K=70 across all three)
+python partition_noniid.py --classes_per_client 1 --num_clients 70 --data_root ../WHU-GCD  # Non-IID1
+python partition_noniid.py --classes_per_client 2 --num_clients 70 --data_root ../WHU-GCD  # Non-IID2
+python partition_iid.py --num_clients 70 --data_root ../WHU-GCD                            # IID baseline
 ```
 
 Use `--dry_run` on any script to preview the split statistics without writing the file.
+
+## Class-Comparison Partitions (Non-IID1 / Non-IID2 / IID)
+
+A dedicated 3-way comparison where the **only variable is data heterogeneity** — all three use the same client count K=70 and nearly identical mean client size (~390 samples). **Class 0 (no-change) is treated as a 7th semantic class**, on equal footing with the 6 change classes {2..7}:
+
+| File | Setting | Classes/client | Clients per class | Generator |
+|---|---|---|---|---|
+| `partition_noniid1_K70.json` | Non-IID1 | 1 | 10 | `partition_noniid.py --classes_per_client 1` |
+| `partition_noniid2_K70.json` | Non-IID2 | 2 | 20 | `partition_noniid.py --classes_per_client 2` |
+| `partition_iid_K70.json` | IID (stratified) | all 7 | all | `partition_iid.py` |
+
+**Algorithm**: the 7 semantic classes `{0, 2, 3, 4, 5, 6, 7}` are assigned to clients via a circular window — client `j` holds classes `C[(j+t) % 7]` for `t` in `range(classes_per_client)`. Each class's samples (class 0 = ucd+ugcd+ugcd_full negatives) are evenly split among its assigned clients (`split_list`: shuffle + divmod). Class 0 is **not** sprinkled — it is split among its own 10 (Non-IID1) / 20 (Non-IID2) clients exactly like any change class.
+
+> **Pure no-change clients**: in Non-IID1, exactly 10 clients hold only class 0 (pure no-change). This faithfully models extreme class heterogeneity (regions with no changes in the observation period) and is intentional.
+>
+> **Note on class 0 purity**: the class-0 group aggregates ucd + ugcd (pure no-change) and ugcd_full (mostly no-change but containing a few real changes, per the WHU-GCD spec). This matches how the existing Dirichlet partition labels these sources.
+
+> Unlike the original FedSeg formula (K = classes × clients_per_class, which makes K vary across settings), this scheme fixes K so Non-IID1/Non-IID2/IID are directly comparable. One-click run: `bash scripts/run_fed_class_comparison.sh`.
 
 ## File Naming Convention
 
 | File | Generator | Clients | Heterogeneity |
 |---|---|---|---|
 | `partition_source.json` | `partition_by_source.py` | 7 | Domain shift |
-| `partition_class_fedseg_cpc10_class_like.json` | `partition_by_class.py` | 70 | Class (FedSeg, 10 clients/class + 10 neg) |
 | `partition_dirichlet_a{α}_n{K}.json` | `partition_dirichlet.py` | K | Statistical (Dirichlet α) |
 | `partition_hybrid_c{C}_{neg}.json` | `partition_hybrid.py` | varies | Domain + class |
+| `partition_noniid1_K70.json` | `partition_noniid.py` | 70 | Class-heterogeneous (1 class/client, incl. class 0) |
+| `partition_noniid2_K70.json` | `partition_noniid.py` | 70 | Class-heterogeneous (2 classes/client, incl. class 0) |
+| `partition_iid_K70.json` | `partition_iid.py` | 70 | Stratified IID (baseline) |
 
 ## JSON Schema
 

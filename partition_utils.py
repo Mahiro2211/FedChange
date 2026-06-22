@@ -17,7 +17,9 @@ import numpy as np
 # ──────────────────────── 常量 ────────────────────────
 
 # 语义类别 ID → 中文名（与 WHU-GCD readme 一致）
+# 0 = 无变化（负样本 ucd/ugcd/ugcd_full，作为独立的语义类参与 Non-IID 划分）
 CLASS_NAMES = {
+    0: "无变化",
     2: "建筑",
     3: "道路",
     4: "水体",
@@ -247,7 +249,8 @@ def compute_client_stats(client_id: str, samples: list[dict]) -> dict[str, Any]:
         if cls is not None:
             stats["class_dist"][str(cls)] += 1
         else:
-            stats["class_dist"]["unknown"] += 1
+            # 无类别后缀的样本（ucd/ugcd/ugcd_full 负样本）记为类 0（无变化）
+            stats["class_dist"]["0"] += 1
 
     # 转换为普通 dict 以便 JSON 序列化
     stats["sources"] = dict(stats["sources"])
@@ -299,8 +302,8 @@ def print_partition_summary(result: dict) -> None:
 
         # 类别分布
         cls_parts = []
-        for cls_id, cnt in sorted(stats["class_dist"].items()):
-            name = CLASS_NAMES.get(int(cls_id), cls_id) if cls_id != "unknown" else "未知"
+        for cls_id, cnt in sorted(stats["class_dist"].items(), key=lambda x: int(x[0]) if x[0].isdigit() else 99):
+            name = CLASS_NAMES.get(int(cls_id), cls_id)
             cls_parts.append(f"{name}={cnt}")
         cls_str = ", ".join(cls_parts)
 
@@ -335,16 +338,14 @@ def print_partition_summary_grouped(result: dict) -> None:
         class_dist = stats["class_dist"]
         if not class_dist:
             group_key = "empty"
-        elif "unknown" in class_dist and len(class_dist) == 1:
-            group_key = "neg"  # 负样本（无类别后缀）
         else:
-            # 取数量最多的类作为主类
+            # 取数量最多的类作为主类（类 0 = 无变化，与其他类一视同仁）
             group_key = max(class_dist.items(), key=lambda x: x[1])[0]
         groups[group_key].append((cid, total))
 
-    # 排序：负样本排最后，其他按类别 ID 升序
+    # 排序：按类别 ID 升序，空客户端排最后
     def _sort_key(k: str) -> tuple:
-        if k in ("neg", "empty"):
+        if k == "empty":
             return (1, k)
         try:
             return (0, int(k))
@@ -355,9 +356,7 @@ def print_partition_summary_grouped(result: dict) -> None:
     for group_key in sorted(groups.keys(), key=_sort_key):
         clients = groups[group_key]
         sizes = [s for _, s in clients]
-        if group_key == "neg":
-            name = "负样本 (ucd+ugcd+ugcd_full)"
-        elif group_key == "empty":
+        if group_key == "empty":
             name = "空客户端"
         else:
             name = f"类别 {group_key} ({CLASS_NAMES.get(int(group_key), '?')})"

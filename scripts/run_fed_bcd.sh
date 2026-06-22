@@ -38,7 +38,6 @@ PARTITIONS=(
     "dirichlet_05 partitions/partition_dirichlet_a0.5_n7.json"
     "dirichlet_10 partitions/partition_dirichlet_a1.0_n7.json"
     "iid partitions/partition_dirichlet_a100.0_n7.json"
-    "class_c1 partitions/partition_class_c1_separate.json"
     "hybrid partitions/partition_hybrid_c1_separate.json"
 )
 

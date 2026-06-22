@@ -4,14 +4,11 @@ Local update for federated change detection.
 Adapted from FedSeg/update.py for bitemporal image pair inputs (BIT-CD model).
 """
 
-import time
 import copy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-
-from fed_cd.evaluation.cd_metrics import ConfuseMatrixMeter
 
 
 class LocalUpdate:
@@ -80,14 +77,17 @@ class LocalUpdate:
                 if labels.dim() == 4:
                     labels = labels.squeeze(1)
 
-                logits = model(img1, img2)
+                if hasattr(model, 'compute_loss'):
+                    loss = model.compute_loss(img1, img2, labels)
+                else:
+                    logits = model(img1, img2)
 
-                if logits.shape[-2:] != labels.shape[-2:]:
-                    logits = F.interpolate(
-                        logits, size=labels.shape[-2:],
-                        mode='bilinear', align_corners=True)
+                    if logits.shape[-2:] != labels.shape[-2:]:
+                        logits = F.interpolate(
+                            logits, size=labels.shape[-2:],
+                            mode='bilinear', align_corners=True)
 
-                loss = criterion(logits, labels)
+                    loss = criterion(logits, labels)
 
                 if args.fedprox_mu > 0:
                     proximal = 0.0
@@ -119,32 +119,3 @@ class LocalUpdate:
         else:
             return torch.optim.lr_scheduler.LambdaLR(optimizer, lambda x: 1.0)
 
-    def inference(self, model):
-        """Evaluate model on this client's local data.
-
-        Returns:
-            (f1, iou_mean, scores_dict)
-        """
-        model.eval()
-        metric = ConfuseMatrixMeter(n_class=self.args.num_classes)
-        testloader = DataLoader(
-            self.dataset, batch_size=1, shuffle=False,
-            num_workers=self.args.num_workers)
-
-        with torch.no_grad():
-            for batch in testloader:
-                img1 = batch['A'].to(self.device)
-                img2 = batch['B'].to(self.device)
-                labels = batch['L'].to(self.device)
-
-                logits = model(img1, img2)
-                if logits.shape[-2:] != labels.shape[-2:]:
-                    logits = F.interpolate(
-                        logits, size=labels.shape[-2:],
-                        mode='bilinear', align_corners=True)
-
-                pred = torch.argmax(logits, dim=1)
-                metric.update_cm(pred.cpu().numpy(), labels.cpu().numpy())
-
-        scores = metric.get_scores()
-        return scores.get('mf1', 0.0), scores.get('miou', 0.0), scores

@@ -26,7 +26,7 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from fed_cd.options import parse_args, print_args
-from fed_cd.models.bit_cd import build_bit_cd_model
+from fed_cd.models import build_cd_model
 from fed_cd.data.cd_dataset import CDDataset, build_eval_dataset
 from fed_cd.data.data_partition import load_partition, scan_evaluation_set
 from fed_cd.federated.local_update import LocalUpdate
@@ -99,7 +99,7 @@ def run_federated(args):
     logger.info(f"Eval splits: {list(eval_loaders.keys())}")
 
     # ─── Build global model ───
-    global_model = build_bit_cd_model(
+    global_model = build_cd_model(
         net_name=args.net_G, num_classes=args.num_classes,
         pretrained=args.pretrained).to(device)
     global_weights = global_model.state_dict()

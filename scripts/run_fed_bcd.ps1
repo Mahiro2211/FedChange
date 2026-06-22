@@ -38,7 +38,6 @@ $PARTITIONS = @(
     @{name="dirichlet_05"; file="partitions/partition_dirichlet_a0.5_n7.json"},
     @{name="dirichlet_10"; file="partitions/partition_dirichlet_a1.0_n7.json"},
     @{name="iid";          file="partitions/partition_dirichlet_a100.0_n7.json"},
-    @{name="class_c1";     file="partitions/partition_class_c1_separate.json"},
     @{name="hybrid";       file="partitions/partition_hybrid_c1_separate.json"}
 )
 

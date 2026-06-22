@@ -3,8 +3,7 @@ Partition loader for federated change detection.
 
 Loads a partition JSON file and provides:
   - client sample lists (for federated training)
-  - centralized train/val/test splits (for baseline)
-  - evaluation set splits
+  - evaluation set splits (val/test/test2)
 """
 
 import json
@@ -25,18 +24,6 @@ def load_partition(partition_path: str) -> dict:
     """
     with open(partition_path, "r", encoding="utf-8") as f:
         return json.load(f)
-
-
-def get_client_samples(partition_path: str, client_id: str) -> list[dict]:
-    """Get the sample list for a specific client."""
-    partition = load_partition(partition_path)
-    return partition["clients"][client_id]["samples"]
-
-
-def get_all_client_ids(partition_path: str) -> list[str]:
-    """Get sorted list of client IDs."""
-    partition = load_partition(partition_path)
-    return sorted(partition["clients"].keys(), key=lambda x: int(x.split("_")[1]))
 
 
 def scan_evaluation_set(data_root: str, split: str) -> list[dict]:
@@ -108,24 +95,3 @@ def scan_evaluation_set(data_root: str, split: str) -> list[dict]:
     print(f"  {split}: {len(samples)} samples")
     return samples
 
-
-def collect_centralized_train(data_root: str, sources: Optional[list[str]] = None) -> list[dict]:
-    """Collect all training samples from specified sources for centralized baseline.
-
-    Args:
-        data_root: path to WHU-GCD/ directory
-        sources: list of source names to include. Default: all 4 sources.
-
-    Returns:
-        list of sample dicts
-    """
-    if sources is None:
-        sources = ["gcd", "ugcd_full", "ucd", "ugcd"]
-
-    from partition_utils import scan_all_sources
-
-    all_data = scan_all_sources(data_root)
-    samples = []
-    for src in sources:
-        samples.extend(all_data.get(src, []))
-    return samples

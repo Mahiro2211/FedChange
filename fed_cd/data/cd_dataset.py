@@ -2,22 +2,16 @@
 WHU-GCD Change Detection Dataset.
 
 Supports both binary change detection (BCD) and semantic change detection (SCD).
-Works with partition JSON files for federated learning, or standalone for centralized training.
+Works with partition JSON files for federated learning.
 """
 
 import os
-import json
 import numpy as np
 from PIL import Image
 import torch
 from torch.utils.data import Dataset
 
-try:
-    from .data_utils import CDDataAugmentation
-except ImportError:
-    import sys
-    sys.path.insert(0, os.path.dirname(__file__))
-    from data_utils import CDDataAugmentation
+from .data_utils import CDDataAugmentation
 
 
 class CDDataset(Dataset):
@@ -100,45 +94,6 @@ class CDDataset(Dataset):
             }
         else:
             raise ValueError(f"Unknown task: {self.task}")
-
-
-class PartitionCDDataset(Dataset):
-    """Dataset wrapper for a single federated client's data partition.
-
-    Loads samples from a partition JSON for a specific client.
-    """
-
-    def __init__(self, partition_path: str, client_id: str, img_size=256,
-                 is_train=True, task="bcd", data_root="../WHU-GCD"):
-        with open(partition_path, "r", encoding="utf-8") as f:
-            partition = json.load(f)
-        self.samples = partition["clients"][client_id]["samples"]
-        self.dataset = CDDataset(self.samples, img_size=img_size, is_train=is_train,
-                                 task=task, data_root=data_root)
-
-    def __len__(self):
-        return len(self.dataset)
-
-    def __getitem__(self, index):
-        return self.dataset[index]
-
-
-def build_client_datasets(partition_path: str, img_size=256, task="bcd", data_root="../WHU-GCD"):
-    """Build CDDataset for every client in a partition.
-
-    Returns:
-        dict: {client_id: CDDataset}
-    """
-    with open(partition_path, "r", encoding="utf-8") as f:
-        partition = json.load(f)
-
-    client_datasets = {}
-    for cid in sorted(partition["clients"].keys(), key=lambda x: int(x.split("_")[1])):
-        samples = partition["clients"][cid]["samples"]
-        client_datasets[cid] = CDDataset(samples, img_size=img_size, is_train=True,
-                                         task=task, data_root=data_root)
-
-    return client_datasets
 
 
 def build_eval_dataset(samples: list[dict], img_size=256, task="bcd", data_root="../WHU-GCD"):

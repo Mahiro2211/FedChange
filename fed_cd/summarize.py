@@ -10,6 +10,15 @@ import json
 import argparse
 from pathlib import Path
 
+from fed_cd.models import BIT_CD_MODELS, TORCHANGE_MODELS
+
+
+_MODEL_LOSS_FAMILY = {}
+for _m in BIT_CD_MODELS:
+    _MODEL_LOSS_FAMILY[_m] = 'CE'
+for _m in TORCHANGE_MODELS:
+    _MODEL_LOSS_FAMILY[_m] = 'BCE+Dice(native)'
+
 
 def collect_results(results_root="results"):
     """Scan all results.json files and return a list of result dicts."""
@@ -55,7 +64,7 @@ def format_table(results, splits=("val", "test", "test2")):
 def format_best_metrics_table(results, splits=("val", "test", "test2")):
     """Format per-metric best (mF1/mIoU/mPrec/mRec) into a comparison table.
 
-    Reads the 'best_metrics' field written by fed_main.py / centralized_main.py.
+    Reads the 'best_metrics' field written by fed_main.py.
     Each split x metric is independently the best across all training rounds.
     """
     has_best = any(r.get("best_metrics") for r in results)
@@ -110,6 +119,42 @@ def save_summary(results, output_path="results/summary.json"):
     print(f"Summary saved to {output_path}")
 
 
+def format_model_comparison_table(results, splits=("val", "test", "test2")):
+    """Format a cross-model comparison table annotated with net_G and loss family.
+
+    Reads net_G from each result's saved args. Loss family is CE for BIT-CD and
+    BCE+Dice (native) for torchange baselines, so the fairness of the comparison
+    is explicit.
+    """
+    if not results:
+        print("No results found.")
+        return
+
+    header = f"\n{'Experiment':<38s}{'net_G':<24s}{'loss':<18s}"
+    for s in splits:
+        header += f" | {s:^22s}"
+    header += "\n" + " " * 80
+    for s in splits:
+        header += f" | {'mF1':>7s} {'mIoU':>7s} {'F1_c':>7s}"
+    header += "\n" + "=" * len(header)
+    print(header)
+
+    for r in results:
+        exp = r.get("experiment", r.get("_path", "?"))
+        net_g = r.get("args", {}).get("net_G", "?")
+        loss = _MODEL_LOSS_FAMILY.get(net_g, "?")
+        final = r.get("final_results", r.get("results", {}))
+        row = f"{exp:<38s}{net_g:<24s}{loss:<18s}"
+        for s in splits:
+            sc = final.get(s, {})
+            mf1 = sc.get("mf1", 0.0) * 100
+            miou = sc.get("miou", 0.0) * 100
+            f1c = sc.get("f1_1", 0.0) * 100
+            row += f" | {mf1:>6.2f}% {miou:>6.2f}% {f1c:>6.2f}%"
+        print(row)
+    print("=" * len(header) + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Summarize experiment results")
     parser.add_argument("--results_root", type=str, default="results")
@@ -118,6 +163,9 @@ def main():
 
     results = collect_results(args.results_root)
     print(f"\nFound {len(results)} experiment(s) in {args.results_root}/")
+
+    print("[ Cross-model comparison (final results, best ckpt by val mF1) ]")
+    format_model_comparison_table(results)
 
     print("[ Final results (best ckpt by val mF1) ]")
     format_table(results)

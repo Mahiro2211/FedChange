@@ -43,6 +43,19 @@ WHU-GCD/
 .project
 .settings/
 
+# ────────────────────── Tooling ──────────────────────
+# Trunk (trunk.io) auto-managed local sandbox: plugins, logs, cache, internal lint configs
+.trunk/
+
+# ────────────────────── Downloaded Pretrained Weights ──────────────────────
+# torchange / Changen2 / SAM weights fetched at runtime (do not commit large binaries).
+# Changen2 weights cache via HF by default (~/.cache/huggingface), but safeguard any
+# weights that land inside the repo (e.g. AnyChange SAM checkpoints).
+sam_weights/
+*.weights/
+*.safetensors
+hf_models/
+
 # ────────────────────── OS ──────────────────────
 .DS_Store
 Thumbs.db

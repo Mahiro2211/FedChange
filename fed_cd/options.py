@@ -23,27 +23,27 @@ def get_parser():
     parser.add_argument('--data_root', type=str, default='../WHU-GCD',
                         help='path to WHU-GCD dataset root')
     parser.add_argument('--partition_json', type=str, default='',
-                        help='path to partition JSON (empty for centralized)')
+                        help='path to partition JSON (required for federated training)')
     parser.add_argument('--img_size', type=int, default=256)
     parser.add_argument('--task', type=str, default='bcd', choices=['bcd', 'scd'])
     parser.add_argument('--num_classes', type=int, default=2,
                         help='2 for BCD, 8 for SCD')
-    parser.add_argument('--train_sources', type=str, default='all',
-                        help='comma-separated sources for centralized (all/gcd,gcd+ugcd_full)')
 
     # ─── Model ───
+    from fed_cd.models import BIT_CD_MODELS, TORCHANGE_MODELS
+    _all_models = sorted(BIT_CD_MODELS | TORCHANGE_MODELS)
     parser.add_argument('--net_G', type=str, default='base_transformer_pos_s4_dd8',
-                        choices=['base_resnet18', 'base_transformer_pos_s4',
-                                 'base_transformer_pos_s4_dd8',
-                                 'base_transformer_pos_s4_dd8_dedim8'])
+                        choices=_all_models,
+                        help='BIT-CD variants (framework own) or torchange baselines '
+                             '(changesparse_bcd, changestar_1xd, changestar_1xd_r18, '
+                             'changestar_2_5, changen2_zeroshot). torchange baselines '
+                             'are binary change detection only.')
     parser.add_argument('--pretrained', type=str2bool, default=True,
-                        help='use ImageNet-pretrained ResNet weights')
+                        help='use ImageNet-pretrained backbone weights')
 
     # ─── Federated ───
-    parser.add_argument('--mode', type=str, default='federated',
-                        choices=['centralized', 'federated'])
     parser.add_argument('--epochs', type=int, default=200,
-                        help='number of global rounds (federated) or epochs (centralized)')
+                        help='number of global communication rounds')
     parser.add_argument('--num_users', type=int, default=7,
                         help='number of federated clients (K)')
     parser.add_argument('--frac_num', type=int, default=5,
