@@ -104,6 +104,82 @@ def parse_args():
     return args
 
 
+def get_centralized_parser():
+    """Argument parser for centralized (non-federated) change detection.
+
+    Shares the data / model / optimization / evaluation / logging flags with the
+    federated parser, but drops federated-only knobs (frac_num, local_ep,
+    fedprox_mu, globalema, iid, num_users) and renames ``local_bs`` to
+    ``batch_size`` since centralized training has no per-client notion.
+    """
+    parser = argparse.ArgumentParser(
+        description='Centralized Change Detection on WHU-GCD (federated upper bound)')
+
+    # ─── Data ───
+    parser.add_argument('--data_root', type=str, default='../WHU-GCD',
+                        help='path to WHU-GCD dataset root')
+    parser.add_argument('--img_size', type=int, default=256)
+    parser.add_argument('--task', type=str, default='bcd', choices=['bcd', 'scd'])
+    parser.add_argument('--num_classes', type=int, default=2,
+                        help='2 for BCD, 8 for SCD')
+
+    # ─── Model ───
+    from fed_cd.models import BIT_CD_MODELS, TORCHANGE_MODELS
+    _all_models = sorted(BIT_CD_MODELS | TORCHANGE_MODELS)
+    parser.add_argument('--net_G', type=str, default='base_transformer_pos_s4_dd8',
+                        choices=_all_models,
+                        help='BIT-CD variants (framework own) or torchange baselines '
+                             '(torchange baselines are binary change detection only).')
+    parser.add_argument('--pretrained', type=str2bool, default=True,
+                        help='use ImageNet-pretrained backbone weights')
+
+    # ─── Optimization ───
+    parser.add_argument('--epochs', type=int, default=200,
+                        help='number of training epochs')
+    parser.add_argument('--batch_size', type=int, default=8,
+                        help='training batch size (B)')
+    parser.add_argument('--lr', type=float, default=0.01)
+    parser.add_argument('--weight_decay', type=float, default=5e-4)
+    parser.add_argument('--optimizer', type=str, default='sgd', choices=['sgd', 'adam'])
+    parser.add_argument('--lr_policy', type=str, default='linear', choices=['linear', 'step'])
+    parser.add_argument('--num_workers', type=int, default=4)
+
+    # ─── Evaluation ───
+    parser.add_argument('--eval_splits', type=str, default='val,test,test2',
+                        help='comma-separated splits to evaluate')
+    parser.add_argument('--global_test_frequency', type=int, default=20)
+    parser.add_argument('--save_frequency', type=int, default=20)
+
+    # ─── Logging ───
+    parser.add_argument('--project_name', type=str, default='centr_exp')
+    parser.add_argument('--checkpoint_root', type=str, default='results')
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--gpu', type=str, default='0')
+    parser.add_argument('--save_results', type=str2bool, default=True,
+                        help='save results JSON after training')
+    parser.add_argument('--log_to_file', type=str2bool, default=True,
+                        help='write loguru logs to results/<project_name>/train.log')
+    parser.add_argument('--log_level', type=str, default='INFO',
+                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+                        help='loguru log level')
+
+    return parser
+
+
+def parse_centralized_args():
+    """Parse args for centralized training (mirrors :func:`parse_args` minus FL knobs)."""
+    parser = get_centralized_parser()
+    args = parser.parse_args()
+
+    args.device = 'cuda' if _check_cuda() else 'cpu'
+
+    import os
+    args.checkpoint_dir = os.path.join(args.checkpoint_root, args.project_name)
+    os.makedirs(args.checkpoint_dir, exist_ok=True)
+
+    return args
+
+
 def _check_cuda():
     import torch
     return torch.cuda.is_available()

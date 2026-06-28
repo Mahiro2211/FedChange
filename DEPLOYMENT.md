@@ -314,7 +314,7 @@ python migrate_paths.py --file partitions/partition_source.json
 
 ## 第 7 步（可选）：Non-IID 类别对比实验（FedSeg 风格）
 
-专为研究"数据异构度对联邦变化检测的影响"设计。三类划分用**相同 K=70、相近客户端尺寸（均值≈390）**，唯一变量是异构度。**类 0（无变化）作为第 7 个语义类**参与异构。**无 centralized**，纯联邦对比（BCD 任务）。
+专为研究"数据异构度对联邦变化检测的影响"设计。三类划分用**相同 K=70、相近客户端尺寸（均值≈390）**，唯一变量是异构度。**类 0（无变化）作为第 7 个语义类**参与异构。纯联邦对比（BCD 任务）；集中式性能上界由 `fed_cd.centralized.cen_main` 提供（见实验矩阵总览）。
 
 ### 1. 生成三类划分
 
@@ -362,15 +362,17 @@ tail -f class_comparison.log
 
 ## 实验矩阵总览
 
-### IID 上界（取代集中式）
+### 集中式上界 + IID 近上界
 
 | 实验 | 模型 (`--net_G`) | 划分 | 命令 |
 |------|------------------|------|------|
-| BIT-CD IID | `base_transformer_pos_s4_dd8` | `partition_iid_K70.json` (`--iid True`) | 见第 4 步 |
+| **BIT-CD 集中式（上界）** | `base_transformer_pos_s4_dd8` | 全部数据集中训练（非联邦） | `bash scripts/run_centralized.sh` |
+| torchange 集中式 ×4（可选） | `changesparse_bcd`、`changestar_1xd_r18`、`changestar_1xd`、`changestar_2_5` | 全部数据集中训练 | `bash scripts/run_centralized.sh 200 8 256 0.01 <net_G> <tag>` |
+| BIT-CD IID（近上界） | `base_transformer_pos_s4_dd8` | `partition_iid_K70.json` (`--iid True`) | 见第 4 步 |
 | torchange IID ×4 | `changesparse_bcd`、`changestar_1xd_r18`、`changestar_1xd`、`changestar_2_5` | `partition_iid_K70.json` | `bash scripts/run_fed_torchange_bcd.sh`（改指向 IID 划分） |
 | Changen2 零样本 | `changen2_zeroshot` | —（免训练） | `python scripts/run_changen2_zeroshot.py` |
 
-> 本项目无集中式训练，性能上界由 IID 划分下的联邦训练充当。
+> 性能上界由**集中式训练**（`fed_cd.centralized.cen_main`）提供；IID 联邦作为近上界参考。集中式与联邦共享同一训练集、模型和超参，唯一区别是优化方式。
 
 ### 联邦实验（Non-IID 鲁棒性）
 
@@ -396,7 +398,7 @@ tail -f class_comparison.log
 
 **算法变体（任意模型/划分可叠加）**：把 `--fedprox_mu 0.0 --globalema False --iid True` 作为基准，按需开启 `--iid False`（加权）、`--fedprox_mu 0.01`（近端）、`--globalema True`（EMA）。
 
-### Non-IID 类别对比（K=70，无 centralized）
+### Non-IID 类别对比（K=70；集中式上界见上方章节）
 
 | | Non-IID1（1类，含纯类0） | Non-IID2（2类） | IID（分层） |
 |---|---|---|---|
