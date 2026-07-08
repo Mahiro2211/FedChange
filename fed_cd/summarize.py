@@ -7,8 +7,12 @@ Scans results/ directory for results.json files and prints/saves a summary.
 import os
 import sys
 import json
+import re
 import argparse
 from pathlib import Path
+from collections import defaultdict
+
+import numpy as np
 
 from fed_cd.models import BIT_CD_MODELS, TORCHANGE_MODELS
 
@@ -61,16 +65,105 @@ def format_table(results, splits=("val", "test", "test2")):
     print("=" * len(header) + "\n")
 
 
+def aggregate_seeds(results):
+    """Group multi-seed runs by base experiment name and compute mean±std.
+
+    A run's project_name is expected to carry a trailing ``_s<seed>`` (e.g.
+    ``FedAvg_noniid1_K70_bcd_s42``). The base name strips that suffix so that
+    runs sharing the same algo+partition but different seeds aggregate together.
+
+    Args:
+        results: list of result dicts (each from a results.json).
+
+    Returns:
+        dict: {base_name: {'count': int, 'runs': [results], 'splits': {...}}}
+        Only groups with >= 2 seeds are returned (single runs are not aggregated).
+        None if no seeded runs are found.
+    """
+    # Match trailing _s<number>, e.g. _s42, _s2024, _s0
+    seed_re = re.compile(r'_s(\d+)$')
+    groups = defaultdict(list)
+    for r in results:
+        exp = r.get("experiment", r.get("_path", "?"))
+        base = exp
+        m = seed_re.search(exp)
+        if m:
+            base = exp[:m.start()]
+        groups[base].append(r)
+
+    # only keep groups with more than one seed run
+    multi = {k: v for k, v in groups.items() if len(v) >= 2}
+    return multi if multi else None
+
+
+def format_seed_summary_table(results, splits=("val", "test", "test2")):
+    """Format multi-seed mean±std table.
+
+    Reads final_results from each seed run, groups by base name, and reports
+    mean ± std of mF1 / mIoU / F1_change per split.
+    """
+    groups = aggregate_seeds(results)
+    if not groups:
+        print("(no multi-seed runs found (_s<seed> suffix); skipping seed table)")
+        return
+
+    metrics = (("mf1", "mF1"), ("miou", "mIoU"), ("f1_1", "F1_c"))
+
+    col_w = 18
+    header = f"\n{'Experiment (seeds)':<40s}"
+    for s in splits:
+        header += f" | {s:^{col_w * len(metrics)}}"
+    header += "\n" + " " * 40
+    for s in splits:
+        header += " | " + " ".join(f"{lab:>{col_w - 1}s}" for _, lab in metrics)
+    sep = "=" * len(header)
+    print("[ Multi-seed mean ± std (final results) ]")
+    print(header)
+    print(sep)
+
+    for base in sorted(groups.keys()):
+        runs = groups[base]
+        n = len(runs)
+        row = f"{base + f' (n={n})':<40s}"
+        for s in splits:
+            cells = []
+            for m_key, _ in metrics:
+                vals = []
+                for r in runs:
+                    sc = r.get("final_results", {}).get(s, {})
+                    v = sc.get(m_key, None)
+                    if v is not None:
+                        vals.append(v * 100)
+                if vals:
+                    mean = float(np.mean(vals))
+                    std = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
+                    cells.append(f"{mean:>6.2f}±{std:.2f}%")
+                else:
+                    cells.append(f"{'n/a':>{col_w - 1}s}")
+            row += " | " + " ".join(f"{c:>{col_w - 1}s}" for c in cells)
+        print(row)
+    print(sep + "\n")
+
+
 def format_best_metrics_table(results, splits=("val", "test", "test2")):
     """Format per-metric best (mF1/mIoU/mPrec/mRec) into a comparison table.
 
-    Reads the 'best_metrics' field written by fed_main.py.
-    Each split x metric is independently the best across all training rounds.
+    ⚠️ ORACLE / NOT FOR PAPER REPORTING ⚠️
+    Reads the 'best_metrics' field written by fed_main.py, where each split ×
+    metric is *independently* the best across all training rounds. This is an
+    oracle upper bound that effectively peeks at the test set each round, so it
+    overestimates generalization. Use ONLY for convergence/diagnostic analysis.
+    For the main paper table, use ``final_results`` (a single checkpoint chosen
+    by val mF1) via ``format_table`` / ``format_seed_summary_table``.
     """
     has_best = any(r.get("best_metrics") for r in results)
     if not has_best:
         print("(no 'best_metrics' field found; skipping best-metrics table)")
         return
+    print("⚠️  ORACLE upper bound — NOT for paper reporting "
+          "(each metric picked independently per round).")
+    print("    For the main table use 'final_results' (val-selected ckpt) "
+          "or the multi-seed mean±std table above.\n")
 
     metrics = (("mf1", "mF1"), ("miou", "mIoU"),
                ("mprecision", "mPrec"), ("mrecall", "mRec"))
@@ -172,6 +265,9 @@ def main():
 
     print("[ Per-metric best across all rounds ]")
     format_best_metrics_table(results)
+
+    print("[ Multi-seed mean ± std ]")
+    format_seed_summary_table(results)
 
     save_summary(results, args.output)
 

@@ -19,8 +19,9 @@ LR=${4:-0.01}
 NET_G=${5:-base_transformer_pos_s4_dd8}
 # Suffix baked into project_name when sweeping multiple models.
 TAG=${6:-base}
+SEED=${7:-42}
 
-PROJ_NAME="Centr_${TAG}_bcd"
+PROJ_NAME="Centr_${TAG}_bcd_s${SEED}"
 
 echo ""
 echo "========== Centralized BCD Experiment =========="
@@ -44,7 +45,7 @@ python -m fed_cd.centralized.cen_main \
     --save_frequency 20 \
     --checkpoint_root results/centralized \
     --project_name "$PROJ_NAME" \
-    --seed 42
+    --seed "$SEED"
 
 echo ""
 echo "========== Centralized BCD experiment complete =========="

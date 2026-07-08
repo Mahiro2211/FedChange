@@ -420,7 +420,7 @@ def build_bit_cd_model(net_name='base_transformer_pos_s4_dd8', num_classes=2,
             'base_transformer_pos_s4' — BIT with 1 decoder layer
             'base_transformer_pos_s4_dd8' — BIT with 8 decoder layers (default, best)
             'base_transformer_pos_s4_dd8_dedim8' — BIT with 8 decoder layers, dim_head=8
-        num_classes: 2 for BCD, 8 for SCD
+        num_classes: 2 for binary change detection
         pretrained: whether to use ImageNet-pretrained ResNet weights
     """
     if net_name == 'base_resnet18':

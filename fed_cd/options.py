@@ -25,9 +25,11 @@ def get_parser():
     parser.add_argument('--partition_json', type=str, default='',
                         help='path to partition JSON (required for federated training)')
     parser.add_argument('--img_size', type=int, default=256)
-    parser.add_argument('--task', type=str, default='bcd', choices=['bcd', 'scd'])
+    parser.add_argument('--task', type=str, default='bcd', choices=['bcd'],
+                        help='task type (this framework is binary change '
+                             'detection only)')
     parser.add_argument('--num_classes', type=int, default=2,
-                        help='2 for BCD, 8 for SCD')
+                        help='2 for binary change detection')
 
     # ─── Model ───
     from fed_cd.models import BIT_CD_MODELS, TORCHANGE_MODELS
@@ -56,8 +58,19 @@ def get_parser():
                         help='IID uses simple average, non-IID uses weighted average')
 
     # ─── FL Algorithm ───
+    # --fed_alg 是算法路由主开关；--fedprox_mu 仅在 fed_alg=fedprox 时生效。
+    # 向后兼容：旧脚本传 --fedprox_mu>0 而 fed_alg 保持默认 fedavg 时，仍会
+    # 触发 proximal 项（见 local_update._should_apply_fedprox），行为与旧版一致。
+    parser.add_argument('--fed_alg', type=str, default='fedavg',
+                        choices=['fedavg', 'fedprox', 'fednova', 'scaffold'],
+                        help='federated optimization algorithm '
+                             '(fedavg/fedprox/fednova/scaffold)')
     parser.add_argument('--fedprox_mu', type=float, default=0.0,
-                        help='FedProx proximal term weight (0=pure FedAvg)')
+                        help='FedProx proximal term weight (0=pure FedAvg). '
+                             'Active when --fed_alg fedprox.')
+    parser.add_argument('--scaffold_lr', type=float, default=1.0,
+                        help='SCAFFOLD global learning rate (server-side control '
+                             'variate update step). Active when --fed_alg scaffold.')
     parser.add_argument('--globalema', type=str2bool, default=False,
                         help='use global EMA')
 
@@ -119,9 +132,11 @@ def get_centralized_parser():
     parser.add_argument('--data_root', type=str, default='../WHU-GCD',
                         help='path to WHU-GCD dataset root')
     parser.add_argument('--img_size', type=int, default=256)
-    parser.add_argument('--task', type=str, default='bcd', choices=['bcd', 'scd'])
+    parser.add_argument('--task', type=str, default='bcd', choices=['bcd'],
+                        help='task type (this framework is binary change '
+                             'detection only)')
     parser.add_argument('--num_classes', type=int, default=2,
-                        help='2 for BCD, 8 for SCD')
+                        help='2 for binary change detection')
 
     # ─── Model ───
     from fed_cd.models import BIT_CD_MODELS, TORCHANGE_MODELS

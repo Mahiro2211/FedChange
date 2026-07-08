@@ -1,7 +1,14 @@
 #!/bin/bash
-# Federated BCD experiments: FedAvg and FedProx on multiple Non-IID partitions
+# Federated BCD experiments: FedAvg and FedProx on multiple Non-IID partitions,
+# repeated over multiple random seeds for mean±std reporting.
+#
+# project_name embeds the seed (e.g. FedAvg_source_bcd_s42) so each seed's
+# results.json lands in its own dir and is picked up by summarize's seed table.
+#
 # Run from FedChange/ directory:
 #   bash scripts/run_fed_bcd.sh
+# Custom seeds / hyperparams (positional):
+#   bash scripts/run_fed_bcd.sh 200 5 2 8 256 0.01 0.01 "42 2024 0"
 
 EPOCHS=${1:-200}
 FRAC_NUM=${2:-5}
@@ -10,26 +17,9 @@ BATCH_SIZE=${4:-8}
 IMG_SIZE=${5:-256}
 LR=${6:-0.01}
 FEDPROX_MU=${7:-0.01}
+SEEDS_STR=${8:-"42 2024 0"}
 
-COMMON_ARGS=(
-    "--data_root" "../WHU-GCD"
-    "--net_G" "base_transformer_pos_s4_dd8"
-    "--num_classes" "2"
-    "--img_size" "$IMG_SIZE"
-    "--epochs" "$EPOCHS"
-    "--frac_num" "$FRAC_NUM"
-    "--local_ep" "$LOCAL_EP"
-    "--local_bs" "$BATCH_SIZE"
-    "--lr" "$LR"
-    "--lr_policy" "linear"
-    "--optimizer" "sgd"
-    "--pretrained" "True"
-    "--eval_splits" "val,test,test2"
-    "--global_test_frequency" "20"
-    "--save_frequency" "20"
-    "--checkpoint_root" "results/fed_bcd"
-    "--seed" "42"
-)
+read -ra SEEDS <<< "$SEEDS_STR"
 
 # Partition files
 PARTITIONS=(
@@ -41,37 +31,59 @@ PARTITIONS=(
     "hybrid partitions/partition_hybrid_c1_separate.json"
 )
 
-# FedAvg experiments (fedprox_mu=0)
-echo ""
-echo "========== FedAvg Experiments =========="
-for entry in "${PARTITIONS[@]}"; do
-    name=$(echo "$entry" | cut -d' ' -f1)
-    file=$(echo "$entry" | cut -d' ' -f2)
-    proj_name="FedAvg_${name}_bcd"
-    echo ""
-    echo ">>> Running $proj_name ..."
-    python -m fed_cd.federated.fed_main \
-        --partition_json "$file" \
-        --project_name "$proj_name" \
-        --fedprox_mu 0.0 \
-        "${COMMON_ARGS[@]}"
-done
+for seed in "${SEEDS[@]}"; do
+    COMMON=(
+        "--data_root" "../WHU-GCD"
+        "--net_G" "base_transformer_pos_s4_dd8"
+        "--num_classes" "2"
+        "--img_size" "$IMG_SIZE"
+        "--epochs" "$EPOCHS"
+        "--frac_num" "$FRAC_NUM"
+        "--local_ep" "$LOCAL_EP"
+        "--local_bs" "$BATCH_SIZE"
+        "--lr" "$LR"
+        "--lr_policy" "linear"
+        "--optimizer" "sgd"
+        "--pretrained" "True"
+        "--eval_splits" "val,test,test2"
+        "--global_test_frequency" "20"
+        "--save_frequency" "20"
+        "--checkpoint_root" "results/fed_bcd"
+        "--seed" "$seed"
+    )
 
-# FedProx experiments
-echo ""
-echo "========== FedProx Experiments (mu=$FEDPROX_MU) =========="
-for entry in "${PARTITIONS[@]}"; do
-    name=$(echo "$entry" | cut -d' ' -f1)
-    file=$(echo "$entry" | cut -d' ' -f2)
-    proj_name="FedProx_${name}_bcd"
     echo ""
-    echo ">>> Running $proj_name ..."
-    python -m fed_cd.federated.fed_main \
-        --partition_json "$file" \
-        --project_name "$proj_name" \
-        --fedprox_mu "$FEDPROX_MU" \
-        "${COMMON_ARGS[@]}"
+    echo "========== Seed = $seed =========="
+
+    # FedAvg experiments (fed_alg=fedavg, fedprox_mu=0)
+    echo "--- FedAvg (seed=$seed) ---"
+    for entry in "${PARTITIONS[@]}"; do
+        name=$(echo "$entry" | cut -d' ' -f1)
+        file=$(echo "$entry" | cut -d' ' -f2)
+        proj_name="FedAvg_${name}_bcd_s${seed}"
+        echo ">>> $proj_name"
+        python -m fed_cd.federated.fed_main \
+            --partition_json "$file" \
+            --project_name "$proj_name" \
+            --fed_alg fedavg --fedprox_mu 0.0 --iid False \
+            "${COMMON[@]}"
+    done
+
+    # FedProx experiments (fed_alg=fedprox)
+    echo "--- FedProx mu=$FEDPROX_MU (seed=$seed) ---"
+    for entry in "${PARTITIONS[@]}"; do
+        name=$(echo "$entry" | cut -d' ' -f1)
+        file=$(echo "$entry" | cut -d' ' -f2)
+        proj_name="FedProx${FEDPROX_MU}_${name}_bcd_s${seed}"
+        echo ">>> $proj_name"
+        python -m fed_cd.federated.fed_main \
+            --partition_json "$file" \
+            --project_name "$proj_name" \
+            --fed_alg fedprox --fedprox_mu "$FEDPROX_MU" --iid False \
+            "${COMMON[@]}"
+    done
 done
 
 echo ""
 echo "========== All BCD experiments complete =========="
+echo "汇总: python -m fed_cd.summarize --results_root results/fed_bcd"

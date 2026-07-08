@@ -30,7 +30,11 @@ from fed_cd.models import build_cd_model
 from fed_cd.data.cd_dataset import CDDataset, build_eval_dataset
 from fed_cd.data.data_partition import load_partition, scan_evaluation_set
 from fed_cd.federated.local_update import LocalUpdate
-from fed_cd.federated.aggregation import average_weights, weighted_average_weights, EMA
+from fed_cd.federated.aggregation import (
+    average_weights, weighted_average_weights, EMA,
+    fednova_aggregate, scaffold_aggregate_control, add_state_dicts,
+    zero_state_dict_like,
+)
 from fed_cd.evaluation.evaluator import evaluate_model
 from fed_cd.logging_config import setup_logger
 
@@ -111,6 +115,26 @@ def run_federated(args):
     if args.globalema:
         ema = EMA(global_model, decay=0.999)
 
+    # ─── SCAFFOLD global control variate (optional) ───
+    # c_global is keyed by named_parameters(), initialized to zeros.
+    c_global = None
+    scaffold_active = (args.fed_alg == 'scaffold')
+    if scaffold_active:
+        # SCAFFOLD requires the loss to be external (BIT-CD family); torchange
+        # baselines (hasattr compute_loss) have a black-box loss -> degrade.
+        if hasattr(global_model, 'compute_loss'):
+            logger.warning(
+                "SCAFFOLD is incompatible with torchange baselines (black-box "
+                "loss); falling back to FedAvg for this run.")
+            scaffold_active = False
+        else:
+            c_global = zero_state_dict_like(global_model)
+            logger.info("SCAFFOLD enabled: global control variate initialized.")
+
+    # Persistent LocalUpdate instances so per-client c_local survives rounds.
+    # Lazily created on first selection of each client.
+    local_updaters = {cid: None for cid in client_ids}
+
     # ─── Training loop ───
     train_loss_history = []
     eval_history = {split: [] for split in eval_loaders}
@@ -144,24 +168,52 @@ def run_federated(args):
         local_weights = []
         local_losses = []
         client_lens = []
+        local_extras = []  # per-client algorithm dicts (fednova/scaffold)
 
         for cid in selected_ids:
-            local_update = LocalUpdate(args, client_datasets[cid], device)
-            w, loss = local_update.update_weights(
-                model=global_model, global_round=epoch)
+            # Reuse a persistent LocalUpdate so SCAFFOLD c_local survives rounds.
+            if local_updaters[cid] is None:
+                local_updaters[cid] = LocalUpdate(args, client_datasets[cid], device)
+            local_update = local_updaters[cid]
+            w, loss, extras = local_update.update_weights(
+                model=global_model, global_round=epoch,
+                c_global=c_global, scaffold_enabled=scaffold_active)
             local_weights.append(w)
             local_losses.append(loss)
             client_lens.append(len(client_datasets[cid]))
+            local_extras.append(extras)
 
         avg_loss = sum(local_losses) / len(local_losses)
         train_loss_history.append(avg_loss)
-        logger.info(f"  [train] avg_loss={avg_loss:.6f}")
+        logger.info(f"  [train] avg_loss={avg_loss:.6f}  alg={args.fed_alg}")
 
-        # Aggregate weights
-        if args.iid:
-            global_weights = average_weights(local_weights)
-        else:
+        # Aggregate weights ── algorithm routing
+        if args.fed_alg == 'fednova':
+            # FedNova: weighted average of normalized local update directions,
+            # then add to the previous global weights (it returns a delta).
+            norm_dirs = [e.get('norm_dir') for e in local_extras]
+            delta = fednova_aggregate(local_weights, norm_dirs, client_lens)
+            # w_{t+1} = w_t + delta (delta is the weighted normalized direction)
+            new_global = copy.deepcopy(global_weights)
+            for key in new_global:
+                if key in delta and torch.is_floating_point(new_global[key]):
+                    new_global[key] = new_global[key] + delta[key].to(new_global[key].device)
+            global_weights = new_global
+        elif args.fed_alg == 'scaffold' and scaffold_active:
+            # SCAFFOLD: standard weighted (or simple) average of local weights,
+            # plus a server-side control variate update.
             global_weights = weighted_average_weights(local_weights, client_lens)
+            delta_c_list = [e.get('delta_c') for e in local_extras]
+            delta_c = scaffold_aggregate_control(
+                delta_c_list, client_lens, lr_g=args.scaffold_lr)
+            if delta_c is not None:
+                c_global = add_state_dicts(c_global, delta_c)
+        else:
+            # FedAvg / FedProx (and SCAFFOLD-degraded-to-FedAvg)
+            if args.iid:
+                global_weights = average_weights(local_weights)
+            else:
+                global_weights = weighted_average_weights(local_weights, client_lens)
 
         global_model.load_state_dict(global_weights)
 

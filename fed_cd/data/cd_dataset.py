@@ -1,8 +1,11 @@
 """
 WHU-GCD Change Detection Dataset.
 
-Supports both binary change detection (BCD) and semantic change detection (SCD).
-Works with partition JSON files for federated learning.
+This framework targets binary change detection (BCD): each label is a 0/1 mask
+marking changed pixels between the two temporal images. Sample dicts may still
+carry mask1/mask2 semantic-mask fields (left over from the WHU-GCD distribution
+and written by the partition scanners), but the BCD training path does not read
+them.
 """
 
 import os
@@ -15,18 +18,18 @@ from .data_utils import CDDataAugmentation
 
 
 class CDDataset(Dataset):
-    """Change detection dataset for WHU-GCD.
+    """Binary change detection dataset for WHU-GCD.
 
-    Each sample is a dict with keys: im1, im2, label, mask1, mask2, source.
-    Paths can be relative (to data_root) or absolute (legacy compatibility).
-    Returns (im1_tensor, im2_tensor, label_tensor) for BCD.
-    Returns (im1_tensor, im2_tensor, label_tensor, mask1_tensor, mask2_tensor) for SCD.
+    Each sample is a dict with keys: im1, im2, label (and optionally mask1,
+    mask2, source). Only im1/im2/label are consumed by the BCD path.
+    Returns a dict with keys 'name', 'A' (T1 image), 'B' (T2 image), 'L' (label).
 
     Args:
         samples: list of sample dicts (from partition JSON or scan functions)
         img_size: target image size (default 256)
         is_train: whether to apply training augmentation
-        task: 'bcd' for binary change detection, 'scd' for semantic change detection
+        task: kept for backward-compatible call signature; this framework is BCD
+            only, so any value is treated as 'bcd'.
         data_root: dataset root for resolving relative paths (default '../WHU-GCD')
     """
 
@@ -35,7 +38,7 @@ class CDDataset(Dataset):
         self.samples = samples
         self.img_size = img_size
         self.is_train = is_train
-        self.task = task
+        self.task = "bcd"
         self.data_root = data_root
 
         if is_train:
@@ -71,31 +74,17 @@ class CDDataset(Dataset):
         img_b = np.asarray(Image.open(self._resolve_path(sample["im2"])).convert("RGB"))
         label = np.array(Image.open(self._resolve_path(sample["label"])), dtype=np.uint8)
 
-        if self.task == "bcd":
-            label = label // 255
-            imgs, labels = self.augm.transform([img_a, img_b], [label], to_tensor=True)
-            return {
-                "name": os.path.basename(sample["im2"]),
-                "A": imgs[0],
-                "B": imgs[1],
-                "L": labels[0],
-            }
-        elif self.task == "scd":
-            mask1 = np.array(Image.open(self._resolve_path(sample["mask1"])), dtype=np.uint8) if sample.get("mask1") else np.zeros_like(label)
-            mask2 = np.array(Image.open(self._resolve_path(sample["mask2"])), dtype=np.uint8) if sample.get("mask2") else np.zeros_like(label)
-            imgs, labels = self.augm.transform([img_a, img_b], [label], to_tensor=True)
-            return {
-                "name": os.path.basename(sample["im2"]),
-                "A": imgs[0],
-                "B": imgs[1],
-                "L": labels[0],
-                "M1": torch.from_numpy(mask1).long(),
-                "M2": torch.from_numpy(mask2).long(),
-            }
-        else:
-            raise ValueError(f"Unknown task: {self.task}")
+        # Binary change detection: WHU-GCD labels are 0/255 -> normalize to 0/1.
+        label = label // 255
+        imgs, labels = self.augm.transform([img_a, img_b], [label], to_tensor=True)
+        return {
+            "name": os.path.basename(sample["im2"]),
+            "A": imgs[0],
+            "B": imgs[1],
+            "L": labels[0],
+        }
 
 
 def build_eval_dataset(samples: list[dict], img_size=256, task="bcd", data_root="../WHU-GCD"):
-    """Build evaluation dataset from a sample list."""
+    """Build evaluation dataset from a sample list (BCD only)."""
     return CDDataset(samples, img_size=img_size, is_train=False, task=task, data_root=data_root)

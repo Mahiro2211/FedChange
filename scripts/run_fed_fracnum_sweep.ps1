@@ -12,7 +12,8 @@ param(
     [int]$LocalEp = 2,
     [int]$BatchSize = 8,
     [int]$ImgSize = 256,
-    [float]$Lr = 0.01
+    [float]$Lr = 0.01,
+    [int]$Seed = 42
 )
 
 # 从 partition 文件名解析 tag
@@ -54,13 +55,13 @@ $COMMON = @(
     "--save_frequency", "20",
     "--checkpoint_root", "results/fracnum_sweep",
     "--iid", "False",
-    "--seed", "42"
+    "--seed", "$Seed"
 )
 
 Write-Host "========== frac_num sweep on $Tag (K=$K) ==========" -ForegroundColor Cyan
 foreach ($frac in $FracList) {
     $pct = if ($frac -ge $K) { "100.0" } else { "{0:N1}" -f ($frac / $K * 100) }
-    $proj = "FedAvg_frac${frac}_${Tag}_bcd"
+    $proj = "FedAvg_frac${frac}_${Tag}_bcd_s${Seed}"
     Write-Host "`n>>> $proj  (frac_num=$frac, 参与率 ${pct}%)" -ForegroundColor Yellow
     $args = @(
         "--partition_json", $Partition,

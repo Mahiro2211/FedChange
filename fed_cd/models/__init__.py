@@ -23,7 +23,7 @@ def build_cd_model(net_name='base_transformer_pos_s4_dd8', num_classes=2, pretra
 
     Args:
         net_name: model name (BIT-CD variant or a torchange baseline name)
-        num_classes: 2 for BCD, 8 for SCD (torchange baselines are binary only)
+        num_classes: 2 for binary change detection (torchange baselines are binary only)
         pretrained: ImageNet-pretrained backbone
 
     Returns:

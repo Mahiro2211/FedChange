@@ -24,6 +24,7 @@ LOCAL_EP=${4:-2}
 BATCH_SIZE=${5:-8}
 IMG_SIZE=${6:-256}
 LR=${7:-0.01}
+SEED=${8:-42}
 
 # 从 partition 文件名解析 tag（如 partition_noniid1_K70.json -> noniid1_K70）
 TAG=$(basename "$PARTITION" | sed -E 's/^partition_(.+)\.json$/\1/')
@@ -59,7 +60,7 @@ COMMON=(
     "--save_frequency" "20"
     "--checkpoint_root" "results/fracnum_sweep"
     "--iid" "False"
-    "--seed" "42"
+    "--seed" "$SEED"
 )
 
 echo "========== frac_num sweep on $TAG (K=$K) =========="
@@ -72,7 +73,7 @@ for frac in "${FRAC_LIST[@]}"; do
     else
         pct=$(python -c "print(f'{$frac/$K*100:.1f}')")
     fi
-    proj="FedAvg_frac${frac}_${TAG}_bcd"
+    proj="FedAvg_frac${frac}_${TAG}_bcd_s${SEED}"
     echo ""
     echo ">>> $proj  (frac_num=$frac, 参与率 ${pct}%)"
     python -m fed_cd.federated.fed_main \

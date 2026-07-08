@@ -415,7 +415,7 @@ tail -f class_comparison.log
 |------|--------|------|
 | `--data_root` | `../WHU-GCD` | 数据集根目录（**迁移时只需改这一个**） |
 | `--net_G` | `base_transformer_pos_s4_dd8` | 模型/骨干：BIT-CD 变体（`base_*`）或 torchange 基线（`changesparse_bcd` / `changestar_1xd` / `changestar_1xd_r18` / `changestar_2_5` / `changen2_zeroshot`） |
-| `--num_classes` | 2 | 2 = BCD，8 = SCD（torchange 基线仅支持 BCD） |
+| `--num_classes` | 2 | 2 = BCD（本框架为二值变化检测） |
 | `--epochs` | 200 | 全局通信轮数 |
 | `--frac_num` | 5 | 每轮参与的客户端数 |
 | `--local_ep` | 2 | 本地训练 epoch 数 |

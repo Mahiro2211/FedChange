@@ -5,6 +5,9 @@ numpy>=1.24.0
 pillow>=9.0.0
 loguru>=0.7.0
 
+# Visualization (for fed_cd/plot.py figures)
+matplotlib>=3.5.0
+
 # Optional: torchange comparison baselines (see README "torchange 对比基线")
 # Install only if running BIT-CD vs torchange comparisons:
 #   pip install torchange "albumentations>=2.0.0" tifffile scikit-image \

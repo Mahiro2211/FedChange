@@ -11,10 +11,11 @@ param(
     [int]$ImgSize = 256,
     [float]$Lr = 0.01,
     [string]$NetG = "base_transformer_pos_s4_dd8",
-    [string]$Tag = "base"
+    [string]$Tag = "base",
+    [int]$Seed = 42
 )
 
-$ProjName = "Centr_${Tag}_bcd"
+$ProjName = "Centr_${Tag}_bcd_s${Seed}"
 
 Write-Host "`n========== Centralized BCD Experiment ==========" -ForegroundColor Cyan
 Write-Host ">>> Model: $NetG" -ForegroundColor Yellow
@@ -37,7 +38,7 @@ $args = @(
     "--save_frequency", "20",
     "--checkpoint_root", "results/centralized",
     "--project_name", $ProjName,
-    "--seed", "42"
+    "--seed", "$Seed"
 )
 python -m fed_cd.centralized.cen_main @args
 
