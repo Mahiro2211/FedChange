@@ -93,3 +93,41 @@ python -m partitions.generate --alpha 0.5 --dry_run
 
 All paths are stored **relative to `data_root`**, so a partition JSON works on
 any machine — just point `--data_root` at the local WHU-GCD directory.
+
+## Partition Method: per-class (extreme label-skew)
+
+`partitions/generate_per_class.py` treats every semantic class as an independent
+unit and splits each class into the same number of single-class clients — the
+strictest possible class-wise Non-IID (every client holds samples from **one**
+semantic class only).
+
+The 7 semantic classes are:
+
+| class id | name | source |
+|---|---|---|
+| 0 | 无变化 (no-change) | ucd + ugcd + ugcd_full (negatives) |
+| 2 | 建筑 (building) | gcd |
+| 3 | 道路 (road) | gcd |
+| 4 | 水体 (water) | gcd |
+| 5 | 荒地 (barren) | gcd |
+| 6 | 森林 (forest) | gcd |
+| 7 | 农业 (agriculture) | gcd |
+
+Class 0 (negatives) is **on equal footing** with the 6 change classes: it is
+its own semantic class and is split into its own clients (the three negative
+sources ucd/ugcd/ugcd_full are evenly mixed within those clients).
+
+```bash
+# Default: 7 classes × 10 clients/class = 70 clients
+python -m partitions.generate_per_class --data_root ../WHU-GCD
+
+# Custom clients-per-class (e.g. 5 → 35 clients)
+python -m partitions.generate_per_class --clients_per_class 5 --data_root ../WHU-GCD
+
+# Preview stats only
+python -m partitions.generate_per_class --dry_run
+```
+
+Naming pattern: `partition_perclass_c{clients_per_class}_n{total}.json`
+(e.g. `partition_perclass_c10_n70.json`). Same JSON schema as the Dirichlet
+partitions; `fed_cd` loads it with no changes via `load_partition()`.
