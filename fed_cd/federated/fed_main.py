@@ -5,10 +5,10 @@ Orchestrates: client selection -> local training -> weight aggregation -> global
 
 Usage:
     python -m fed_cd.federated.fed_main \
-        --partition_json partitions/partition_source.json \
+        --partition_json partitions/partition_dirichlet_a0.5_n7.json \
         --net_G base_transformer_pos_s4_dd8 \
         --epochs 200 --frac_num 5 --local_ep 2 \
-        --project_name FedAvg_source_bcd
+        --project_name FedAvg_dirichlet_05_bcd
 """
 
 import os

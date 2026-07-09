@@ -1,13 +1,30 @@
 """
-WHU-GCD 联邦学习数据划分 —— 公共工具模块
+WHU-GCD 联邦学习 Dirichlet Non-IID 数据划分。
 
-提供数据集扫描、类别解析、统计输出、JSON 格式化等共用功能，
-供 partition_by_source / partition_by_class / partition_dirichlet / partition_hybrid 调用。
+使用 Dirichlet 分布控制不同客户端之间的类别分布异构程度。
+alpha 越小异构性越强，alpha→∞ 等价于 IID 均匀划分。
+    0.05 ~ 0.1: 极端异构
+    0.5:        中等异构
+    1.0:        轻度异构
+    ≥10:        接近 IID
+
+本模块同时是：(1) 被其他代码 import 的工具库（数据扫描 scan_all_sources、
+划分 dirichlet_partition、统计/保存等）；(2) 生成划分 JSON 的 CLI 入口。
+
+用法（从仓库根目录 FedChange/ 运行）:
+    # 默认参数生成
+    python -m partitions.generate --data_root ../WHU-GCD
+
+    # 自定义 alpha / 客户端数
+    python -m partitions.generate --alpha 0.1 --num_clients 10 --data_root ../WHU-GCD
+
+    # 仅预览统计，不写文件
+    python -m partitions.generate --alpha 1.0 --dry_run
 """
 
+import argparse
 import json
 import os
-import random
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -105,52 +122,6 @@ def scan_all_sources(data_root: str) -> dict[str, list[dict[str, str]]]:
     return result
 
 
-def scan_evaluation(data_root: str, split: str) -> list[dict[str, str]]:
-    """扫描验证集或测试集。路径相对于 data_root 存储。
-
-    Args:
-        split: "val" / "test" / "test2"
-    """
-    split_dir = Path(data_root) / split
-    im2_dir = split_dir / "im2"
-    if not im2_dir.exists():
-        return []
-
-    samples = []
-    for im2_file in sorted(im2_dir.glob("*.png")):
-        im2_name = im2_file.name
-        # 验证集/测试集的 im1 与 im2 同名（或需要去后缀）
-        im1_name = im2_name
-
-        rel_prefix = split
-        im1_rel = f"{rel_prefix}/im1/{im1_name}"
-        im2_rel = f"{rel_prefix}/im2/{im2_name}"
-        label_rel = f"{rel_prefix}/label/{im2_name}"
-
-        im1_path = str(Path(data_root) / im1_rel)
-        label_path = str(Path(data_root) / label_rel)
-
-        if not os.path.isfile(im1_path) or not os.path.isfile(label_path):
-            continue
-
-        mask1_path = str(Path(data_root) / split / "mask1" / im1_name) if (split_dir / "mask1").exists() else ""
-        mask2_path = str(Path(data_root) / split / "mask2" / im2_name) if (split_dir / "mask2").exists() else ""
-
-        mask1_rel = f"{rel_prefix}/mask1/{im1_name}" if (split_dir / "mask1").exists() else ""
-        mask2_rel = f"{rel_prefix}/mask2/{im2_name}" if (split_dir / "mask2").exists() else ""
-
-        samples.append({
-            "im1": im1_rel,
-            "im2": im2_rel,
-            "label": label_rel,
-            "mask1": mask1_rel if os.path.isfile(mask1_path) else "",
-            "mask2": mask2_rel if os.path.isfile(mask2_path) else "",
-            "source": split,
-        })
-
-    return samples
-
-
 # ──────────────────────── 类别解析 ────────────────────────
 
 def parse_change_class(im2_filename: str, source: str) -> int | None:
@@ -182,15 +153,6 @@ def get_sample_classes(samples: list[dict]) -> dict[int, list[dict]]:
 
 
 # ──────────────────────── 划分辅助 ────────────────────────
-
-def split_list(lst: list, n: int, seed: int = 42) -> list[list]:
-    """将列表尽量均匀地分成 n 份。"""
-    rng = random.Random(seed)
-    shuffled = lst[:]
-    rng.shuffle(shuffled)
-    k, m = divmod(len(shuffled), n)
-    return [shuffled[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n)]
-
 
 def dirichlet_partition(labels: list[int], num_clients: int, alpha: float,
                         seed: int = 42) -> list[list[int]]:
@@ -315,67 +277,6 @@ def print_partition_summary(result: dict) -> None:
     print(f"{'=' * 60}")
 
 
-def print_partition_summary_grouped(result: dict) -> None:
-    """按主类别分组的客户端摘要（适用于大客户端数场景，如 FedSeg 风格）。
-
-    将客户端按其主要变化类别分组，每组显示客户端数、样本数 min/mean/max，
-    避免在客户端数 ≥ 60 时逐客户端打印导致日志过长。
-    """
-    print(f"\n{'=' * 60}")
-    print(f"划分方式: {result['partition_method']}")
-    print(f"参数: {result['params']}")
-    print(f"客户端数: {result['num_clients']}")
-    print(f"{'=' * 60}")
-
-    # 按主类别分组：每客户端只看 class_dist 的唯一键
-    groups: dict[str, list[tuple[str, int]]] = defaultdict(list)
-    total_samples = 0
-    for cid, cdata in result["clients"].items():
-        stats = cdata["stats"]
-        total = stats["total"]
-        total_samples += total
-
-        class_dist = stats["class_dist"]
-        if not class_dist:
-            group_key = "empty"
-        else:
-            # 取数量最多的类作为主类（类 0 = 无变化，与其他类一视同仁）
-            group_key = max(class_dist.items(), key=lambda x: x[1])[0]
-        groups[group_key].append((cid, total))
-
-    # 排序：按类别 ID 升序，空客户端排最后
-    def _sort_key(k: str) -> tuple:
-        if k == "empty":
-            return (1, k)
-        try:
-            return (0, int(k))
-        except ValueError:
-            return (1, k)
-
-    print(f"\n按主类别分组:")
-    for group_key in sorted(groups.keys(), key=_sort_key):
-        clients = groups[group_key]
-        sizes = [s for _, s in clients]
-        if group_key == "empty":
-            name = "空客户端"
-        else:
-            name = f"类别 {group_key} ({CLASS_NAMES.get(int(group_key), '?')})"
-        print(f"\n  {name}  [{len(clients)} 个客户端]")
-        print(f"    样本数: min={min(sizes)}, mean={sum(sizes) / len(sizes):.0f}, "
-              f"max={max(sizes)}, 总计={sum(sizes)}")
-        # 列出前 3 个和后 1 个客户端 ID，便于抽查
-        if len(clients) <= 4:
-            preview = ", ".join(f"{c}={s}" for c, s in clients)
-        else:
-            head = ", ".join(f"{c}={s}" for c, s in clients[:3])
-            tail = f"{clients[-1][0]}={clients[-1][1]}"
-            preview = f"{head}, ..., {tail}"
-        print(f"    客户端: {preview}")
-
-    print(f"\n总样本数: {total_samples}")
-    print(f"{'=' * 60}")
-
-
 # ──────────────────────── 内部工具 ────────────────────────
 
 def _im2_to_im1_name(im2_name: str, source: str) -> str:
@@ -399,14 +300,92 @@ def _im2_to_im1_name(im2_name: str, source: str) -> str:
     return im2_name
 
 
-# ──────────────────────── CLI 公共参数 ────────────────────────
+# ──────────────────────── Dirichlet 划分 ────────────────────────
+
+def partition_dirichlet(
+    data_root: str,
+    num_clients: int,
+    alpha: float,
+    include_neg: bool = True,
+    seed: int = 42,
+) -> dict:
+    """Dirichlet 非独立同分布划分。
+
+    Args:
+        data_root: 数据集根目录
+        num_clients: 客户端数量
+        alpha: Dirichlet 浓度参数
+            0.05 ~ 0.1: 极端异构
+            0.5: 中等异构
+            1.0: 轻度异构
+            ≥10: 接近 IID
+        include_neg: 是否包含负样本 (ucd/ugcd/ugcd_full)
+        seed: 随机种子
+    """
+    print("正在扫描数据集...")
+    source_data = scan_all_sources(data_root)
+    print()
+
+    # ─── 1. 收集所有样本并标注类别 ───
+    all_samples = []
+    sample_labels = []
+
+    # gcd 样本：有明确的类别标签 (2-7)
+    gcd_samples = source_data.get("gcd", [])
+    class_groups = get_sample_classes(gcd_samples)
+
+    print("gcd 类别分布:")
+    for cls_id in sorted(class_groups.keys()):
+        name = CLASS_NAMES.get(cls_id, str(cls_id))
+        print(f"  类别 {cls_id} ({name}): {len(class_groups[cls_id])} 样本")
+    print()
+
+    for cls_id, samples in class_groups.items():
+        for s in samples:
+            all_samples.append(s)
+            sample_labels.append(cls_id)
+
+    # 负样本：标记为类别 0（无变化）
+    if include_neg:
+        for src in ["ucd", "ugcd", "ugcd_full"]:
+            for s in source_data.get(src, []):
+                all_samples.append(s)
+                sample_labels.append(0)
+
+    num_with_class = len([l for l in sample_labels if l > 0])
+    num_neg = len([l for l in sample_labels if l == 0])
+    print(f"有变化样本: {num_with_class}, 负样本: {num_neg}, 总计: {len(all_samples)}")
+
+    # ─── 2. Dirichlet 划分 ───
+    print(f"\n执行 Dirichlet 划分: alpha={alpha}, num_clients={num_clients}")
+    client_indices = dirichlet_partition(sample_labels, num_clients, alpha, seed=seed)
+
+    # ─── 3. 构建客户端数据 ───
+    client_data = {}
+    for c in range(num_clients):
+        cid = f"client_{c}"
+        indices = client_indices[c]
+        client_data[cid] = [all_samples[i] for i in indices]
+
+    return build_partition_output(
+        method="dirichlet",
+        params={
+            "alpha": alpha,
+            "num_clients": num_clients,
+            "include_neg": include_neg,
+        },
+        client_data=client_data,
+    )
+
+
+# ──────────────────────── CLI ────────────────────────
 
 def add_common_args(parser):
-    """为子脚本的 argparse 添加公共参数。"""
+    """为 CLI 添加公共参数。"""
     parser.add_argument(
         "--data_root",
         type=str,
-        default=r"..\WHU-GCD",
+        default=r"../WHU-GCD",
         help="WHU-GCD 数据集根目录",
     )
     parser.add_argument(
@@ -426,3 +405,47 @@ def add_common_args(parser):
         action="store_true",
         help="仅打印统计信息，不写入文件",
     )
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Dirichlet 分布划分（可控异构度）")
+    add_common_args(parser)
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=0.5,
+        help="Dirichlet 浓度参数 (0.1=极端异构, 0.5=中等, 1.0=轻度, 10=接近IID)",
+    )
+    parser.add_argument(
+        "--num_clients",
+        type=int,
+        default=7,
+        help="客户端数量",
+    )
+    parser.add_argument(
+        "--no_neg",
+        action="store_true",
+        help="排除负样本 (ucd/ugcd/ugcd_full)",
+    )
+    args = parser.parse_args()
+
+    result = partition_dirichlet(
+        args.data_root,
+        num_clients=args.num_clients,
+        alpha=args.alpha,
+        include_neg=not args.no_neg,
+        seed=args.seed,
+    )
+
+    print_partition_summary(result)
+
+    if not args.dry_run:
+        output_path = (
+            f"{args.output_dir}/partition_dirichlet_a{args.alpha}"
+            f"_n{args.num_clients}.json"
+        )
+        save_partition(result, output_path)
+
+
+if __name__ == "__main__":
+    main()

@@ -54,6 +54,37 @@ class _ImageNetRenorm(nn.Module):
         return self.inner(x1n, x2n)
 
 
+def check_env():
+    """检查 Changen2 零样本评估所需依赖（核心库 + torchange 可选库）。
+
+    缺库时打印中文提示 + 安装命令并退出，避免在 torchange 导入深处抛出晦涩的
+    ImportError。与 scripts/check_env.sh 保持同样的 import/pip 名称映射。
+    """
+    import importlib.util as _ilu
+    # (import名, pip名)；core + torchange 两档
+    required = [
+        # 核心
+        ('torch', 'torch'), ('torchvision', 'torchvision'), ('einops', 'einops'),
+        ('numpy', 'numpy'), ('PIL', 'pillow'), ('loguru', 'loguru'),
+        # torchange 基线
+        ('torchange', 'torchange'), ('albumentations', 'albumentations'),
+        ('tifffile', 'tifffile'), ('skimage', 'scikit-image'),
+        ('datasets', 'datasets'), ('ever', 'ever-beta'),
+        ('segmentation_models_pytorch', 'segmentation-models-pytorch'),
+        ('timm', 'timm'),
+    ]
+    missing = [pip for imp, pip in required if _ilu.find_spec(imp) is None]
+    if missing:
+        print('\n❌ 缺少依赖：\n   ' + ' '.join(missing), file=sys.stderr)
+        print('\n请先安装（在 FedChange/ 目录下）：', file=sys.stderr)
+        print('   pip install -r requirements.txt', file=sys.stderr)
+        print('   pip install torchange "albumentations>=2.0.0" tifffile '
+              'scikit-image datasets ever-beta segmentation-models-pytorch timm',
+              file=sys.stderr)
+        print('\n完整安装说明见 README.md「环境配置」章节。', file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Changen2 zero-shot change detection on WHU-GCD')
     parser.add_argument('--data_root', type=str, default='../WHU-GCD')
@@ -63,6 +94,8 @@ def main():
     parser.add_argument('--project_name', type=str, default='Changen2_zeroshot')
     parser.add_argument('--num_workers', type=int, default=4)
     args = parser.parse_args()
+
+    check_env()  # 在构建 torchange 模型前确认依赖齐全
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     os.makedirs(os.path.join(args.checkpoint_root, args.project_name), exist_ok=True)

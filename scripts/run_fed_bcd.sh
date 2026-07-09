@@ -1,8 +1,9 @@
 #!/bin/bash
-# Federated BCD experiments: FedAvg and FedProx on multiple Non-IID partitions,
-# repeated over multiple random seeds for mean±std reporting.
+# Federated BCD experiments: FedAvg and FedProx on a sweep of Dirichlet Non-IID
+# partitions (controlled heterogeneity via alpha), repeated over multiple random
+# seeds for mean±std reporting.
 #
-# project_name embeds the seed (e.g. FedAvg_source_bcd_s42) so each seed's
+# project_name embeds the seed (e.g. FedAvg_dirichlet_05_bcd_s42) so each seed's
 # results.json lands in its own dir and is picked up by summarize's seed table.
 #
 # Run from FedChange/ directory:
@@ -19,16 +20,21 @@ LR=${6:-0.01}
 FEDPROX_MU=${7:-0.01}
 SEEDS_STR=${8:-"42 2024 0"}
 
+# ─── 环境依赖检查（BIT-CD 实验，仅需核心库）───
+# shellcheck source=check_env.sh
+source "$(dirname "$0")/check_env.sh"
+check_env_core || exit 1
+
 read -ra SEEDS <<< "$SEEDS_STR"
 
-# Partition files
+# Partition files: Dirichlet alpha sweep (smaller alpha = more heterogeneous).
+# alpha=0.1 极端异构 / 0.5 中等 / 1.0 轻度 / 100 接近 IID
+# 生成划分: python -m partitions.generate --alpha <α> --num_clients 7 --data_root ../WHU-GCD
 PARTITIONS=(
-    "source partitions/partition_source.json"
-    "dirichlet_01 partitions/partition_dirichlet_a0.1_n7.json"
-    "dirichlet_05 partitions/partition_dirichlet_a0.5_n7.json"
-    "dirichlet_10 partitions/partition_dirichlet_a1.0_n7.json"
-    "iid partitions/partition_dirichlet_a100.0_n7.json"
-    "hybrid partitions/partition_hybrid_c1_separate.json"
+    "dirichlet_01   partitions/partition_dirichlet_a0.1_n7.json"
+    "dirichlet_05   partitions/partition_dirichlet_a0.5_n7.json"
+    "dirichlet_10   partitions/partition_dirichlet_a1.0_n7.json"
+    "dirichlet_100  partitions/partition_dirichlet_a100.0_n7.json"
 )
 
 for seed in "${SEEDS[@]}"; do
@@ -58,8 +64,7 @@ for seed in "${SEEDS[@]}"; do
     # FedAvg experiments (fed_alg=fedavg, fedprox_mu=0)
     echo "--- FedAvg (seed=$seed) ---"
     for entry in "${PARTITIONS[@]}"; do
-        name=$(echo "$entry" | cut -d' ' -f1)
-        file=$(echo "$entry" | cut -d' ' -f2)
+        read -r name file <<< "$entry"
         proj_name="FedAvg_${name}_bcd_s${seed}"
         echo ">>> $proj_name"
         python -m fed_cd.federated.fed_main \
@@ -72,8 +77,7 @@ for seed in "${SEEDS[@]}"; do
     # FedProx experiments (fed_alg=fedprox)
     echo "--- FedProx mu=$FEDPROX_MU (seed=$seed) ---"
     for entry in "${PARTITIONS[@]}"; do
-        name=$(echo "$entry" | cut -d' ' -f1)
-        file=$(echo "$entry" | cut -d' ' -f2)
+        read -r name file <<< "$entry"
         proj_name="FedProx${FEDPROX_MU}_${name}_bcd_s${seed}"
         echo ">>> $proj_name"
         python -m fed_cd.federated.fed_main \

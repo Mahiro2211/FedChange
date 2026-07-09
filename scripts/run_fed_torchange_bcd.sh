@@ -24,6 +24,12 @@ LR=${6:-0.01}
 FEDPROX_MU=${7:-0.01}
 SEEDS_STR=${8:-"42 2024 0"}
 
+# ─── 环境依赖检查（torchange 基线实验，核心库 + torchange 可选库）───
+# shellcheck source=check_env.sh
+source "$(dirname "$0")/check_env.sh"
+check_env_core || exit 1
+check_env_torchange || exit 1
+
 read -ra SEEDS <<< "$SEEDS_STR"
 
 # Trainable torchange BCD baselines
@@ -37,10 +43,9 @@ MODELS=(
 # Use the canonical Non-IID partition (Dirichlet alpha=0.5, 7 clients) for the
 # main comparison table. Add more partition entries below to sweep heterogeneity.
 PARTITIONS=(
-    "dirichlet_05 partitions/partition_dirichlet_a0.5_n7.json"
-    # "dirichlet_01 partitions/partition_dirichlet_a0.1_n7.json"
-    # "source       partitions/partition_source.json"
-    # "iid          partitions/partition_dirichlet_a100.0_n7.json"
+    "dirichlet_05  partitions/partition_dirichlet_a0.5_n7.json"
+    # "dirichlet_01  partitions/partition_dirichlet_a0.1_n7.json"
+    # "dirichlet_100 partitions/partition_dirichlet_a100.0_n7.json"
 )
 
 for seed in "${SEEDS[@]}"; do
@@ -48,8 +53,7 @@ for seed in "${SEEDS[@]}"; do
     echo "========== Seed = $seed =========="
     for NET_G in "${MODELS[@]}"; do
         for entry in "${PARTITIONS[@]}"; do
-            name=$(echo "$entry" | cut -d' ' -f1)
-            file=$(echo "$entry" | cut -d' ' -f2)
+            read -r name file <<< "$entry"
 
             # FedAvg (fed_alg=fedavg)
             proj_avg="FedAvg_${NET_G}_${name}_bcd_s${seed}"

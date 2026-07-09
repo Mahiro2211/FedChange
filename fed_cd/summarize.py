@@ -69,7 +69,7 @@ def aggregate_seeds(results):
     """Group multi-seed runs by base experiment name and compute mean±std.
 
     A run's project_name is expected to carry a trailing ``_s<seed>`` (e.g.
-    ``FedAvg_noniid1_K70_bcd_s42``). The base name strips that suffix so that
+    ``FedAvg_dirichlet_05_bcd_s42``). The base name strips that suffix so that
     runs sharing the same algo+partition but different seeds aggregate together.
 
     Args:

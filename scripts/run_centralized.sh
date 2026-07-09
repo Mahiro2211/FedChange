@@ -21,6 +21,16 @@ NET_G=${5:-base_transformer_pos_s4_dd8}
 TAG=${6:-base}
 SEED=${7:-42}
 
+# ─── 环境依赖检查 ───
+# shellcheck source=check_env.sh
+source "$(dirname "$0")/check_env.sh"
+check_env_core || exit 1
+# torchange 模型（通过位置参数 $5 指定）需要额外的可选库
+case "$NET_G" in
+    changesparse_bcd|changestar_1xd|changestar_1xd_r18|changestar_2_5|changen2_zeroshot)
+        check_env_torchange || exit 1 ;;
+esac
+
 PROJ_NAME="Centr_${TAG}_bcd_s${SEED}"
 
 echo ""

@@ -10,8 +10,8 @@
 /home/you/projects/
 ├── FedChange/          ← 代码（含已迁移的相对路径 JSON）
 │   ├── fed_cd/         ← 核心 Python 包
-│   ├── partitions/     ← 8 个 Non-IID 划分 JSON（相对路径，跨机器可移植）
-│   ├── scripts/        ← 批量实验脚本
+│   ├── partitions/     ← Dirichlet 划分包（generate.py + 4 个 JSON，相对路径可移植）
+│   ├── scripts/        ← 批量实验脚本（Bash）
 │   └── ...
 └── WHU-GCD/            ← 数据集
     ├── train/          ← gcd / ugcd_full / ucd / ugcd
@@ -71,7 +71,7 @@ python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}, GPU: {torch.
 python -c "
 import json, sys; sys.path.insert(0, '.')
 from fed_cd.data.cd_dataset import CDDataset
-d = json.load(open('partitions/partition_source.json'))
+d = json.load(open('partitions/partition_dirichlet_a0.5_n7.json'))
 ds = CDDataset(d['clients']['client_0']['samples'][:3], data_root='../WHU-GCD')
 s = ds[0]
 print(f'OK: A={s[\"A\"].shape}, L={s[\"L\"].unique().tolist()}')
@@ -85,6 +85,8 @@ CUDA: True, GPU: NVIDIA GeForce RTX 4060
 OK: A=torch.Size([3, 256, 256]), L=[0, 1]
 ```
 
+> 所有运行脚本启动时会**自动检查依赖**：缺核心库或缺 torchange 基线库（仅 torchange_fed / changen2 步骤需要）时，会打印中文提示与安装命令并中止。也可手动检查：`source scripts/check_env.sh && check_env_core && check_env_torchange`。
+
 ---
 
 ## 第 4 步：运行联邦实验
@@ -94,11 +96,11 @@ OK: A=torch.Size([3, 256, 256]), L=[0, 1]
 ```bash
 cd /home/you/projects/FedChange
 
-# 示例：FedAvg + source partition
+# 示例：FedAvg + Dirichlet α=0.5 partition
 python -m fed_cd.federated.fed_main \
-    --partition_json partitions/partition_source.json \
+    --partition_json partitions/partition_dirichlet_a0.5_n7.json \
     --data_root ../WHU-GCD \
-    --project_name "FedAvg_source_bcd" \
+    --project_name "FedAvg_dirichlet05_bcd" \
     --fedprox_mu 0.0 \
     --net_G base_transformer_pos_s4_dd8 \
     --num_classes 2 \
@@ -118,7 +120,7 @@ python -m fed_cd.federated.fed_main \
     --seed 42
 ```
 
-### 批量运行全部联邦实验（12 个实验 = 2 算法 × 6 partition）
+### 批量运行全部联邦实验（8 个实验 = 2 算法 × 4 Dirichlet α）
 
 ```bash
 # 前台运行
@@ -135,16 +137,16 @@ tail -f fed_bcd_all.log
 bash scripts/run_fed_bcd.sh 200 5 2 8 256 0.01 0.01
 ```
 
-**7 种 partition 对应的 JSON 文件：**
+**4 档 Dirichlet α 对应的 JSON 文件：**
 
 | 名称 | JSON 文件 |
 |------|-----------|
-| source | `partitions/partition_source.json` |
 | dirichlet α=0.1 | `partitions/partition_dirichlet_a0.1_n7.json` |
 | dirichlet α=0.5 | `partitions/partition_dirichlet_a0.5_n7.json` |
 | dirichlet α=1.0 | `partitions/partition_dirichlet_a1.0_n7.json` |
-| IID (α=100) | `partitions/partition_dirichlet_a100.0_n7.json` |
-| hybrid | `partitions/partition_hybrid_c1_separate.json` |
+| 近 IID (α=100) | `partitions/partition_dirichlet_a100.0_n7.json` |
+
+> 缺失时用 `python -m partitions.generate --alpha <α> --num_clients 7 --data_root ../WHU-GCD` 重新生成。
 
 ### 联邦算法详解（4 种可组合算法）
 
@@ -270,118 +272,49 @@ python scripts/run_changen2_zeroshot.py --data_root ../WHU-GCD
 
 ---
 
-## 第 5 步（可选）：重新生成 Non-IID 划分
+## 第 5 步（可选）：重新生成 Dirichlet 划分
 
-如果需要用不同的客户端数量或 Dirichlet 参数重新划分：
+如果需要用不同的客户端数量或 Dirichlet α 重新划分：
 
 ```bash
 cd /home/you/projects/FedChange
 
 # Dirichlet α=0.3, 10 个客户端
-python partition_dirichlet.py --data_root ../WHU-GCD --alpha 0.3 --num_clients 10
+python -m partitions.generate --data_root ../WHU-GCD --alpha 0.3 --num_clients 10
 
-# 按来源划分
-python partition_by_source.py --data_root ../WHU-GCD --clients_per_source 3,3,2,2
+# 预览统计不写文件
+python -m partitions.generate --alpha 0.5 --dry_run
 
-# Non-IID1/2 类别异构（含类 0，固定 K=70）
-python partition_noniid.py --data_root ../WHU-GCD --classes_per_client 1 --num_clients 70
-python partition_noniid.py --data_root ../WHU-GCD --classes_per_client 2 --num_clients 70
-
-# 混合策略
-python partition_hybrid.py --data_root ../WHU-GCD --domain_clients 3,2 --classes_per_client 1
+# 排除负样本（ucd/ugcd/ugcd_full）
+python -m partitions.generate --alpha 0.5 --no_neg
 ```
 
-新生成的 JSON 同样使用相对路径，跨机器可移植。
-
----
-
-## 第 6 步（可选）：路径迁移工具
-
-如果 partition JSON 中包含旧的绝对路径（从其他机器复制的），用以下命令一键转换为相对路径：
-
-```bash
-# 检查（dry-run，不修改文件）
-python migrate_paths.py --check
-
-# 执行迁移
-python migrate_paths.py
-
-# 迁移单个文件
-python migrate_paths.py --file partitions/partition_source.json
-```
-
----
-
-## 第 7 步（可选）：Non-IID 类别对比实验（FedSeg 风格）
-
-专为研究"数据异构度对联邦变化检测的影响"设计。三类划分用**相同 K=70、相近客户端尺寸（均值≈390）**，唯一变量是异构度。**类 0（无变化）作为第 7 个语义类**参与异构。纯联邦对比（BCD 任务）；集中式性能上界由 `fed_cd.centralized.cen_main` 提供（见实验矩阵总览）。
-
-### 1. 生成三类划分
-
-```bash
-cd /home/you/projects/FedChange
-
-# Non-IID1: 每客户端 1 个语义类（7 类含类0 × 10 客户端/类，含纯无变化客户端）
-python partition_noniid.py --classes_per_client 1 --num_clients 70 --data_root ../WHU-GCD
-
-# Non-IID2: 每客户端 2 个语义类（每类出现在 20 个客户端）
-python partition_noniid.py --classes_per_client 2 --num_clients 70 --data_root ../WHU-GCD
-
-# IID: 分层随机（每客户端含全部 7 类）
-python partition_iid.py --num_clients 70 --data_root ../WHU-GCD
-```
-
-生成 `partition_noniid1_K70.json`、`partition_noniid2_K70.json`、`partition_iid_K70.json`。建议先 `--dry_run` 预览各客户端类别分布。
-
-### 2. 运行 6 个对比实验
-
-```bash
-# 前台
-bash scripts/run_fed_class_comparison.sh
-
-# 后台 + 日志（推荐长时间实验）
-nohup bash scripts/run_fed_class_comparison.sh > class_comparison.log 2>&1 &
-tail -f class_comparison.log
-```
-
-脚本对每个划分跑 FedAvg（`--fedprox_mu 0.0`）+ FedProx（`--fedprox_mu 0.01`）共 6 个实验。IID 用简单聚合（`--iid True`），Non-IID 用加权聚合（`--iid False`），遵循 FedSeg 惯例。
-
-> **客户端数**：脚本固定 K=70、每轮 `frac_num=5`（7% 参与率）。可用位置参数自定义：`bash scripts/run_fed_class_comparison.sh 200 5 2 8 256 0.01 0.01 70`（顺序：epochs frac_num local_ep bs img_size lr fedprox_mu K）。
-
-### 三类划分对比
-
-| 设置 | 每客户端类数 | 每类客户端数 | 客户端尺寸 |
-|------|-------------|-------------|-----------|
-| Non-IID1 | 1（含纯无变化客户端） | 10 | ~151–634（均值 390） |
-| Non-IID2 | 2 | 20 | ~241–540（均值 390） |
-| IID | 全部 7 类 | 全部 | ~387–394（均值 390） |
-
-> 尺寸方差来自各类样本数不均（类0 6334 / 森林 5676 vs 道路 1517），属类别异构的固有特性；三设置**均值尺寸相同（390）**，加权聚合会按数据量归一。Non-IID1 中 10 个纯类 0 客户端忠实反映极端异构（无变化区域）。
+新生成的 JSON 同样使用相对路径，跨机器可移植。命名规则 `partition_dirichlet_a{α}_n{客户端数}.json`。
 
 ---
 
 ## 实验矩阵总览
 
-### 集中式上界 + IID 近上界
+### 集中式上界 + 近 IID 参考
 
 | 实验 | 模型 (`--net_G`) | 划分 | 命令 |
 |------|------------------|------|------|
 | **BIT-CD 集中式（上界）** | `base_transformer_pos_s4_dd8` | 全部数据集中训练（非联邦） | `bash scripts/run_centralized.sh` |
 | torchange 集中式 ×4（可选） | `changesparse_bcd`、`changestar_1xd_r18`、`changestar_1xd`、`changestar_2_5` | 全部数据集中训练 | `bash scripts/run_centralized.sh 200 8 256 0.01 <net_G> <tag>` |
-| BIT-CD IID（近上界） | `base_transformer_pos_s4_dd8` | `partition_iid_K70.json` (`--iid True`) | 见第 4 步 |
-| torchange IID ×4 | `changesparse_bcd`、`changestar_1xd_r18`、`changestar_1xd`、`changestar_2_5` | `partition_iid_K70.json` | `bash scripts/run_fed_torchange_bcd.sh`（改指向 IID 划分） |
+| BIT-CD 近 IID（参考） | `base_transformer_pos_s4_dd8` | `partition_dirichlet_a100.0_n7.json` (`--iid True`) | 见第 4 步 |
+| torchange 近 IID ×4 | `changesparse_bcd`、`changestar_1xd_r18`、`changestar_1xd`、`changestar_2_5` | `partition_dirichlet_a100.0_n7.json` | `bash scripts/run_fed_torchange_bcd.sh`（改指向近 IID 划分） |
 | Changen2 零样本 | `changen2_zeroshot` | —（免训练） | `python scripts/run_changen2_zeroshot.py` |
 
-> 性能上界由**集中式训练**（`fed_cd.centralized.cen_main`）提供；IID 联邦作为近上界参考。集中式与联邦共享同一训练集、模型和超参，唯一区别是优化方式。
+> 性能上界由**集中式训练**（`fed_cd.centralized.cen_main`）提供；α=100 的联邦训练作为近 IID 参考。集中式与联邦共享同一训练集、模型和超参，唯一区别是优化方式。
 
 ### 联邦实验（Non-IID 鲁棒性）
 
-**主矩阵：BIT-CD × 2 算法 × 6 划分 = 12 个实验**
+**主矩阵：BIT-CD × 2 算法 × 4 Dirichlet α = 8 个实验**
 
-| | source | dir α=0.1 | dir α=0.5 | dir α=1.0 | IID | hybrid |
-|---|---|---|---|---|---|---|
-| **FedAvg**（加权） | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **FedProx** μ=0.01 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| | dir α=0.1 | dir α=0.5 | dir α=1.0 | dir α=100 |
+|---|---|---|---|---|
+| **FedAvg**（加权） | ✓ | ✓ | ✓ | ✓ |
+| **FedProx** μ=0.01 | ✓ | ✓ | ✓ | ✓ |
 
 一键运行：`bash scripts/run_fed_bcd.sh`
 
@@ -394,18 +327,15 @@ tail -f class_comparison.log
 
 一键运行：`bash scripts/run_fed_torchange_bcd.sh`
 
-> 扩展到全部 7 种划分：取消 `scripts/run_fed_torchange_bcd.sh` 内 `PARTITIONS` 数组的注释行。
+> 扩展到更多 α：取消 `scripts/run_fed_torchange_bcd.sh` 内 `PARTITIONS` 数组的注释行（α=0.1 / α=100）。
 
 **算法变体（任意模型/划分可叠加）**：把 `--fedprox_mu 0.0 --globalema False --iid True` 作为基准，按需开启 `--iid False`（加权）、`--fedprox_mu 0.01`（近端）、`--globalema True`（EMA）。
 
-### Non-IID 类别对比（K=70；集中式上界见上方章节）
+### 联邦算法对比（4 算法）
 
-| | Non-IID1（1类，含纯类0） | Non-IID2（2类） | IID（分层） |
-|---|---|---|---|
-| **FedAvg** | ✓ | ✓ | ✓ |
-| **FedProx** μ=0.01 | ✓ | ✓ | ✓ |
+固定 Dirichlet α=0.5，对比 FedAvg / FedProx / FedNova / SCAFFOLD：
 
-一键运行：`bash scripts/run_fed_class_comparison.sh`（先生成 3 个划分 JSON）
+一键运行：`bash scripts/run_fed_alg_comparison.sh`
 
 ---
 
@@ -443,7 +373,7 @@ tail -f class_comparison.log
 |------|---------------|
 | 环境安装（含 torchange 可选） | ~5–10 分钟 |
 | 验证 | ~1 分钟 |
-| 联邦实验 ×12（BIT-CD） | ~数天 |
+| 联邦实验 ×8（BIT-CD，4 α × 2 算法） | ~数天 |
 | 联邦 torchange 对比 ×8 | ~数天 |
 | Changen2 零样本评估 | ~数分钟（含首次权重下载） |
 | 重新生成划分 | ~2 分钟/种 |
@@ -497,7 +427,7 @@ nohup bash scripts/run_fed_bcd.sh > fed_bcd_all.log 2>&1 &
 - **模型容量上界**（看最强表现）：选大骨干——`changestar_1xd`（R50）、`changestar_2_5`（R50）、`changen2_zeroshot`（ViT-B）。
 - **仅验证 BIT-CD 联邦效果**：用默认 `base_transformer_pos_s4_dd8` 即可，无需装 torchange。
 
-> torchange 模型需先安装 torchange（见第 5 步"使用 torchange 基线"）。BIT-CD 变体无需任何额外依赖。
+> torchange 模型需先安装 torchange（见第 4 步"使用 torchange 基线（可选安装）"）。BIT-CD 变体无需任何额外依赖。
 
 ### Q: 如何选择/组合联邦算法？
 
@@ -510,4 +440,4 @@ nohup bash scripts/run_fed_bcd.sh > fed_bcd_all.log 2>&1 &
 | 极端 Non-IID | `--iid False --fedprox_mu 0.01`（FedProx） |
 | 训练不稳定/震荡 | 上述任意 + `--globalema True`（加 EMA 平滑） |
 
-> 异构越强（Dirichlet α 越小、或按来源/类别划分），FedProx 的 μ 可适当调大（0.01→0.1）。先跑加权 FedAvg 作基线，再叠加近端/EMA 看增益。
+> 异构越强（Dirichlet α 越小），FedProx 的 μ 可适当调大（0.01→0.1）。先跑加权 FedAvg 作基线，再叠加近端/EMA 看增益。

@@ -25,6 +25,11 @@ IMG_SIZE=${7:-256}
 LR=${8:-0.01}
 FEDPROX_MU=${9:-0.01}
 
+# ─── 环境依赖检查（BIT-CD 实验，仅需核心库）───
+# shellcheck source=check_env.sh
+source "$(dirname "$0")/check_env.sh"
+check_env_core || exit 1
+
 TAG=$(basename "$PARTITION" | sed -E 's/^partition_(.+)\.json$/\1/')
 read -ra SEEDS <<< "$SEEDS_STR"
 

@@ -16,17 +16,21 @@
 #   python -m fed_cd.summarize                 # 汇总所有 results/，自动产出 mean±std 表
 #
 # ─── 实验清单（按执行顺序）──────────────────────────────────────────
-#   1) centralized        集中式上界（BIT-CD + torchange 基线）
-#   2) alg_comparison     4 联邦算法对比（FedAvg/FedProx/FedNova/SCAFFOLD）
-#   3) fed_bcd            6 划分 × (FedAvg+FedProx) 主矩阵
-#   4) class_comparison   Non-IID1/2/IID 类别异构对比 (K=70)
-#   5) torchange_fed      torchange 基线联邦对比
-#   6) fracnum_sweep      客户端参与率稳健性 sweep
-#   7) changen2_zeroshot  Changen2 零样本评估（免训练）
+#   0) env check          环境依赖预检（按将运行的步骤决定查核心库/额外查 torchange 库）
+#   1) centralized        集中式上界（BIT-CD，全量数据集中训练）
+#   2) alg_comparison     4 联邦算法对比（FedAvg/FedProx/FedNova/SCAFFOLD，Dirichlet a0.5）
+#   3) fed_bcd            4 个 Dirichlet α × (FedAvg+FedProx) 异构度主矩阵
+#   4) torchange_fed      torchange 基线联邦对比（Dirichlet a0.5）
+#   5) changen2           Changen2 零样本评估（免训练）
 #
-# 用 --only / --skip 选择性执行（见底部"步骤开关"说明）：
-#   bash scripts/run_all.sh 42 --only centralized,alg_comparison
-#   bash scripts/run_all.sh 42 --skip fracnum_sweep,changen2
+# ─── 选择性执行（--only / --skip，逗号分隔步骤名）─────────────────
+#   只跑单个对比试验：
+#     bash scripts/run_all.sh 42 --only alg_comparison
+#   跑指定的若干个：
+#     bash scripts/run_all.sh 42 --only fed_bcd,torchange_fed
+#   跳过部分（例如只跑需要训练的、跳过免训练的零样本评估）：
+#     bash scripts/run_all.sh 42 --skip centralized,changen2
+#   可用步骤名: centralized | alg_comparison | fed_bcd | torchange_fed | changen2
 # =============================================================================
 
 set -uo pipefail  # 未定义变量报错 + 管道失败传播；不设 -e 以便单步失败不中断后续实验
@@ -98,55 +102,49 @@ echo "#  epochs=$EPOCHS frac=$FRAC_NUM local_ep=$LOCAL_EP bs=$BATCH_SIZE img=$IM
 [ -n "$SKIP" ] && echo "#  --skip: $SKIP"
 echo "############################################################"
 
+# ─── 步骤 0：环境依赖预检（只检查本次将要运行的步骤所需库）───
+# shellcheck source=check_env.sh
+source "$(dirname "$0")/check_env.sh"
+# 任一将运行的步骤都需要核心库
+check_env_core || exit 1
+# torchange 基线步骤（torchange_fed / changen2）额外需要可选库
+if should_run torchange_fed || should_run changen2; then
+    check_env_torchange || exit 1
+fi
+
 # ─── 步骤 1：集中式上界 ───
 if should_run centralized; then
-    echo ""; echo "======== [1/7] centralized (上界) — seed=$SEED ========"
+    echo ""; echo "======== [1/5] centralized (上界) — seed=$SEED ========"
     run_step "centralized" bash scripts/run_centralized.sh "$EPOCHS" "$BATCH_SIZE" "$IMG_SIZE" "$LR" \
         base_transformer_pos_s4_dd8 base "$SEED"
 fi
 
 # ─── 步骤 2：4 联邦算法对比 ───
 if should_run alg_comparison; then
-    echo ""; echo "======== [2/7] alg_comparison (FedAvg/FedProx/FedNova/SCAFFOLD) — seed=$SEED ========"
+    echo ""; echo "======== [2/5] alg_comparison (FedAvg/FedProx/FedNova/SCAFFOLD) — seed=$SEED ========"
     # run_fed_alg_comparison.sh 参数: partition seeds_str epochs frac local_ep bs img lr mu
     run_step "alg_comparison" bash scripts/run_fed_alg_comparison.sh \
         partitions/partition_dirichlet_a0.5_n7.json "$SEED" \
         "$EPOCHS" "$FRAC_NUM" "$LOCAL_EP" "$BATCH_SIZE" "$IMG_SIZE" "$LR" "$FEDPROX_MU"
 fi
 
-# ─── 步骤 3：6 划分主矩阵 ───
+# ─── 步骤 3：Dirichlet α 异构度主矩阵 ───
 if should_run fed_bcd; then
-    echo ""; echo "======== [3/7] fed_bcd (6 划分 × FedAvg+FedProx) — seed=$SEED ========"
+    echo ""; echo "======== [3/5] fed_bcd (4 个 Dirichlet α × FedAvg+FedProx) — seed=$SEED ========"
     # run_fed_bcd.sh 参数: epochs frac local_ep bs img lr mu seeds_str
     run_step "fed_bcd" bash scripts/run_fed_bcd.sh "${COMMON_PASS[@]}" "$SEED"
 fi
 
-# ─── 步骤 4：Non-IID 类别异构对比 ───
-if should_run class_comparison; then
-    echo ""; echo "======== [4/7] class_comparison (Non-IID1/2/IID, K=70) — seed=$SEED ========"
-    # run_fed_class_comparison.sh 参数: epochs frac local_ep bs img lr mu K seeds_str
-    run_step "class_comparison" bash scripts/run_fed_class_comparison.sh "${COMMON_PASS[@]}" 70 "$SEED"
-fi
-
-# ─── 步骤 5：torchange 联邦对比 ───
+# ─── 步骤 4：torchange 联邦对比 ───
 if should_run torchange_fed; then
-    echo ""; echo "======== [5/7] torchange_fed (BIT-CD vs torchange 基线) — seed=$SEED ========"
+    echo ""; echo "======== [4/5] torchange_fed (BIT-CD vs torchange 基线) — seed=$SEED ========"
     # run_fed_torchange_bcd.sh 参数: epochs frac local_ep bs img lr mu seeds_str
     run_step "torchange_fed" bash scripts/run_fed_torchange_bcd.sh "${COMMON_PASS[@]}" "$SEED"
 fi
 
-# ─── 步骤 6：frac_num 参与率稳健性 sweep ───
-if should_run fracnum_sweep; then
-    echo ""; echo "======== [6/7] fracnum_sweep (参与率 1.4%~100%) — seed=$SEED ========"
-    # run_fed_fracnum_sweep.sh 参数: partition frac_list epochs local_ep bs img lr seed
-    run_step "fracnum_sweep" bash scripts/run_fed_fracnum_sweep.sh \
-        partitions/partition_noniid1_K70.json "1 5 10 20 70" \
-        "$EPOCHS" "$LOCAL_EP" "$BATCH_SIZE" "$IMG_SIZE" "$LR" "$SEED"
-fi
-
-# ─── 步骤 7：Changen2 零样本评估（免训练，与 seed 无关）───
+# ─── 步骤 5：Changen2 零样本评估（免训练，与 seed 无关）───
 if should_run changen2; then
-    echo ""; echo "======== [7/7] changen2_zeroshot (零样本评估) ========"
+    echo ""; echo "======== [5/5] changen2_zeroshot (零样本评估) ========"
     run_step "changen2_zeroshot" python scripts/run_changen2_zeroshot.py --data_root ../WHU-GCD
 fi
 

@@ -30,7 +30,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-# Ensure project root is on path (for partition_utils.scan_all_sources)
+# Ensure project root is on path (for partitions.generate.scan_all_sources)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from fed_cd.options import parse_centralized_args, print_args
@@ -39,7 +39,7 @@ from fed_cd.data.cd_dataset import CDDataset, build_eval_dataset
 from fed_cd.data.data_partition import scan_evaluation_set
 from fed_cd.evaluation.evaluator import evaluate_model
 from fed_cd.logging_config import setup_logger
-from partition_utils import scan_all_sources
+from partitions.generate import scan_all_sources
 
 
 def set_seed(seed):
